@@ -28,9 +28,10 @@ pub const FORMAT_MAGIC: &str = "daw-project";
 /// * **4** — Milestone 1: adds project-level automation lanes
 ///   (`project.automation`).
 /// * **5** — Milestone 1: adds per-track MIDI clips (`track.midi_clips`).
-///   Older files are forward-compatible (the field defaults to empty) and
-///   upgraded by [`crate::migrate::migrate_to_current`].
-pub const CURRENT_SCHEMA_VERSION: u32 = 5;
+/// * **6** — Milestone 1: adds per-track `pan` and `color`. Older files are
+///   forward-compatible (fields default) and upgraded by
+///   [`crate::migrate::migrate_to_current`].
+pub const CURRENT_SCHEMA_VERSION: u32 = 6;
 
 /// The root serialized document.
 ///

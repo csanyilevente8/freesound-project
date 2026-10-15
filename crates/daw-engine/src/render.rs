@@ -132,6 +132,13 @@ pub fn render_block(
         gain.prepare(&config);
         gain.process(&mut buf);
 
+        // Apply track pan (constant-power) if off-center and stereo.
+        if track.pan.abs() > f32::EPSILON && buf.channels() >= 2 {
+            let mut pan = daw_dsp::PanProcessor::new(track.pan);
+            pan.prepare(&config);
+            pan.process(&mut buf);
+        }
+
         contributions.push(buf);
     }
 
@@ -230,6 +237,22 @@ mod tests {
         sources.insert(id, stereo_const(4, 1.0));
         let out = render_block(&p, 4, &sources).unwrap();
         assert_eq!(out.peak(), 0.0);
+    }
+
+    #[test]
+    fn hard_left_pan_silences_right_channel() {
+        let mut p = project();
+        let id = {
+            let mut t = Track::new(TrackKind::Audio, "A");
+            t.pan = -1.0; // hard left
+            p.add_track(t)
+        };
+        let mut sources = HashMap::new();
+        sources.insert(id, stereo_const(8, 0.5));
+        let out = render_block(&p, 8, &sources).unwrap();
+        // Left retains signal; right is ~silent.
+        assert!(out.channel(0)[0].abs() > 0.1);
+        assert!(out.channel(1)[0].abs() < 1e-5);
     }
 
     #[test]

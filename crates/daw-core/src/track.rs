@@ -40,6 +40,13 @@ pub struct Track {
     pub name: String,
     /// Linear output gain applied during mixing.
     pub volume: Gain,
+    /// Stereo pan position in [-1, 1] (0 = center). Applied during mixing via a
+    /// constant-power pan law.
+    #[serde(default)]
+    pub pan: f32,
+    /// Optional display color (e.g. "#73C7B8"). Cosmetic; UI-only.
+    #[serde(default)]
+    pub color: Option<String>,
     /// Whether the track is muted.
     pub mute: bool,
     /// Whether the track is soloed.
@@ -65,6 +72,8 @@ impl Track {
             kind,
             name: name.into(),
             volume: Gain::UNITY,
+            pan: 0.0,
+            color: None,
             mute: false,
             solo: false,
             clips: Vec::new(),

@@ -729,6 +729,7 @@ impl DawGui {
         // Deferred edit, applied after drawing (borrow-safe).
         enum Edit {
             Volume(TrackId, Gain),
+            Pan(TrackId, f32),
             Mute(TrackId, bool),
             Solo(TrackId, bool),
             Bypass(TrackId, EffectId, bool),
@@ -773,6 +774,25 @@ impl DawGui {
                                 if let Some(g) = Gain::linear(v) {
                                     edit = Some(Edit::Volume(tid, g));
                                 }
+                            }
+
+                            // Pan slider (-1..1, labeled L/C/R).
+                            let mut pan = track.pan;
+                            let pan_label = if pan.abs() < 0.01 {
+                                "C".to_string()
+                            } else if pan < 0.0 {
+                                format!("{:.0}% L", -pan * 100.0)
+                            } else {
+                                format!("{:.0}% R", pan * 100.0)
+                            };
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut pan, -1.0..=1.0)
+                                        .text(format!("pan ({pan_label})")),
+                                )
+                                .changed()
+                            {
+                                edit = Some(Edit::Pan(tid, pan));
                             }
 
                             ui.horizontal(|ui| {
@@ -867,6 +887,10 @@ impl DawGui {
                 Edit::Volume(t, g) => self.run_edit_keep_playing(
                     "set volume",
                     Box::new(SetTrackVolume { id: t, volume: g }),
+                ),
+                Edit::Pan(t, pan) => self.run_edit_keep_playing(
+                    "set pan",
+                    Box::new(daw_commands::commands::SetTrackPan { id: t, pan }),
                 ),
                 Edit::Mute(t, m) => self
                     .run_edit_keep_playing("set mute", Box::new(SetTrackMute { id: t, mute: m })),
@@ -1103,12 +1127,13 @@ impl DawGui {
                                 ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                             }
 
+                            let base_color = parse_color(track.color.as_ref());
                             let fill = if is_selected {
                                 theme::ACCENT.gamma_multiply(0.6)
                             } else if resp.hovered() || resp.dragged() {
                                 theme::ACCENT.gamma_multiply(0.4)
                             } else {
-                                theme::CLIP
+                                base_color
                             };
                             painter.rect_filled(clip_rect, 3.0, fill);
                             let stroke_w = if is_selected { 2.0 } else { 1.0 };
@@ -1274,6 +1299,23 @@ fn meter_bar(ui: &mut egui::Ui, peak: f32) {
         theme::ACCENT
     };
     p.rect_filled(fill, 2.0, col);
+}
+
+/// Parses a "#rrggbb" hex color, falling back to the default clip color.
+fn parse_color(hex: Option<&String>) -> egui::Color32 {
+    if let Some(h) = hex {
+        let h = h.trim_start_matches('#');
+        if h.len() == 6 {
+            if let (Ok(r), Ok(g), Ok(b)) = (
+                u8::from_str_radix(&h[0..2], 16),
+                u8::from_str_radix(&h[2..4], 16),
+                u8::from_str_radix(&h[4..6], 16),
+            ) {
+                return egui::Color32::from_rgb(r, g, b);
+            }
+        }
+    }
+    theme::CLIP
 }
 
 /// Launches the GUI event loop with `project` (blocking until the window

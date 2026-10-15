@@ -186,6 +186,56 @@ impl Command for SetTrackSolo {
     }
 }
 
+/// Sets a track's stereo pan ([-1, 1], clamped).
+pub struct SetTrackPan {
+    /// Target track.
+    pub id: TrackId,
+    /// New pan position.
+    pub pan: f32,
+}
+
+impl Command for SetTrackPan {
+    fn label(&self) -> String {
+        "Set Pan".to_string()
+    }
+
+    fn apply(&self, project: &mut Project) -> Result<Box<dyn Command>, CommandError> {
+        let track = project
+            .track_mut(self.id)
+            .ok_or_else(|| not_found("track", self.id))?;
+        let previous = std::mem::replace(&mut track.pan, self.pan.clamp(-1.0, 1.0));
+        Ok(Box::new(SetTrackPan {
+            id: self.id,
+            pan: previous,
+        }))
+    }
+}
+
+/// Sets a track's display color (hex string, or `None` to clear).
+pub struct SetTrackColor {
+    /// Target track.
+    pub id: TrackId,
+    /// New color.
+    pub color: Option<String>,
+}
+
+impl Command for SetTrackColor {
+    fn label(&self) -> String {
+        "Set Track Color".to_string()
+    }
+
+    fn apply(&self, project: &mut Project) -> Result<Box<dyn Command>, CommandError> {
+        let track = project
+            .track_mut(self.id)
+            .ok_or_else(|| not_found("track", self.id))?;
+        let previous = std::mem::replace(&mut track.color, self.color.clone());
+        Ok(Box::new(SetTrackColor {
+            id: self.id,
+            color: previous,
+        }))
+    }
+}
+
 /// Sets the project tempo.
 pub struct SetTempo {
     /// New tempo.

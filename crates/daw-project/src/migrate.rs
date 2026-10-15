@@ -37,6 +37,7 @@ pub fn migrate_to_current(mut doc: ProjectDocument) -> Result<ProjectDocument, P
             2 => migrate_2_to_3(doc),
             3 => migrate_3_to_4(doc),
             4 => migrate_4_to_5(doc),
+            5 => migrate_5_to_6(doc),
             // Unreachable: the loop condition guarantees a version below
             // CURRENT, and every such version must have a step above.
             other => {
@@ -84,6 +85,15 @@ fn migrate_3_to_4(mut doc: ProjectDocument) -> ProjectDocument {
 /// empty list during parsing, so this step only advances the version marker.
 fn migrate_4_to_5(mut doc: ProjectDocument) -> ProjectDocument {
     doc.schema_version = 5;
+    doc
+}
+
+/// Migrates a v5 document to v6.
+///
+/// v5 has no per-track `pan`/`color`; serde defaults filled them during
+/// parsing, so this step only advances the version marker.
+fn migrate_5_to_6(mut doc: ProjectDocument) -> ProjectDocument {
+    doc.schema_version = 6;
     doc
 }
 
