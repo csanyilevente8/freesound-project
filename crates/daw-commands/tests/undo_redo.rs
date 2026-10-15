@@ -1,8 +1,9 @@
 //! Integration tests for the command/undo-redo model.
 
 use daw_commands::commands::{
-    AddClip, AddEffect, AddTrack, MoveClip, MoveEffect, RemoveTrack, RenameTrack,
-    SetAutomationPoint, SetClipGeometry, SetEffectBypass, SetEffectParam, SetTrackVolume,
+    AddClip, AddEffect, AddTrack, MoveClip, MoveEffect, RemoveAutomationLane, RemoveEffect,
+    RemoveTrack, RenameTrack, SetAutomationPoint, SetClipGeometry, SetEffectBypass, SetEffectParam,
+    SetTempo, SetTimeSignature, SetTrackSolo, SetTrackVolume,
 };
 use daw_commands::{CommandError, History};
 use daw_core::audio::{ChannelLayout, Gain};
@@ -12,7 +13,7 @@ use daw_core::effect::{EffectInstance, ParamValue};
 use daw_core::id::{AssetId, TrackId};
 use daw_core::media::MediaAssetRef;
 use daw_core::project::Project;
-use daw_core::time::{SampleRate, SampleTime};
+use daw_core::time::{SampleRate, SampleTime, Tempo, TimeSignature};
 use daw_core::track::{Track, TrackKind};
 
 fn project() -> Project {
@@ -118,6 +119,54 @@ fn set_volume_round_trips() {
 
     h.undo(&mut p).unwrap();
     assert!((p.track(id).unwrap().volume.factor() - 1.0).abs() < 1e-6);
+}
+
+#[test]
+fn set_solo_round_trips() {
+    let mut p = project();
+    let mut h = History::new();
+    let t = Track::new(TrackKind::Audio, "A");
+    let id = t.id;
+    h.execute(&mut p, Box::new(AddTrack { track: t })).unwrap();
+
+    h.execute(&mut p, Box::new(SetTrackSolo { id, solo: true }))
+        .unwrap();
+    assert!(p.track(id).unwrap().solo);
+    h.undo(&mut p).unwrap();
+    assert!(!p.track(id).unwrap().solo);
+}
+
+#[test]
+fn set_tempo_is_reversible() {
+    let mut p = project();
+    let mut h = History::new();
+    let original = p.tempo.bpm();
+    h.execute(
+        &mut p,
+        Box::new(SetTempo {
+            tempo: Tempo::new(140.0).unwrap(),
+        }),
+    )
+    .unwrap();
+    assert!((p.tempo.bpm() - 140.0).abs() < 1e-9);
+    h.undo(&mut p).unwrap();
+    assert!((p.tempo.bpm() - original).abs() < 1e-9);
+}
+
+#[test]
+fn set_time_signature_is_reversible() {
+    let mut p = project();
+    let mut h = History::new();
+    h.execute(
+        &mut p,
+        Box::new(SetTimeSignature {
+            time_signature: TimeSignature::new(3, 4).unwrap(),
+        }),
+    )
+    .unwrap();
+    assert_eq!(p.time_signature.numerator, 3);
+    h.undo(&mut p).unwrap();
+    assert_eq!(p.time_signature.numerator, 4);
 }
 
 #[test]
@@ -589,4 +638,83 @@ fn automation_draw_gesture_is_one_undo_unit() {
 
     h.undo(&mut p).unwrap(); // undo the entire gesture at once
     assert!(p.automation[0].points().is_empty());
+}
+
+#[test]
+fn remove_effect_with_its_automation_lane_as_transaction() {
+    use daw_core::automation::{AutomationLane, AutomationTarget, Interpolation};
+
+    let (mut p, mut h, track) = project_with_track();
+    let effect = EffectInstance::new("filter");
+    let effect_id = effect.id;
+    h.execute(&mut p, Box::new(AddEffect { track, effect }))
+        .unwrap();
+
+    // Add an automation lane targeting that effect's parameter.
+    let target = AutomationTarget::EffectParam {
+        track,
+        effect: effect_id,
+        param: "cutoff".into(),
+    };
+    p.automation
+        .push(AutomationLane::new(target.clone(), Interpolation::Linear));
+
+    // Removing just the effect would leave a dangling lane -> invalid -> rolled
+    // back. The GUI issues a transaction; here we assert the pieces compose.
+    let result = h.transaction(&mut p, "remove effect", |proj, tx| {
+        tx.execute(
+            proj,
+            Box::new(RemoveAutomationLane {
+                target: target.clone(),
+            }),
+        )?;
+        tx.execute(
+            proj,
+            Box::new(RemoveEffect {
+                track,
+                id: effect_id,
+            }),
+        )
+    });
+    assert!(result.is_ok(), "transaction should succeed: {result:?}");
+    assert!(p.track(track).unwrap().effects.is_empty());
+    assert!(p.automation.is_empty());
+
+    // Undo restores both the effect and its lane.
+    h.undo(&mut p).unwrap();
+    assert_eq!(p.track(track).unwrap().effects.len(), 1);
+    assert_eq!(p.automation.len(), 1);
+}
+
+#[test]
+fn removing_effect_alone_with_dangling_automation_is_rejected() {
+    use daw_core::automation::{AutomationLane, AutomationTarget, Interpolation};
+
+    let (mut p, mut h, track) = project_with_track();
+    let effect = EffectInstance::new("filter");
+    let effect_id = effect.id;
+    h.execute(&mut p, Box::new(AddEffect { track, effect }))
+        .unwrap();
+    p.automation.push(AutomationLane::new(
+        AutomationTarget::EffectParam {
+            track,
+            effect: effect_id,
+            param: "cutoff".into(),
+        },
+        Interpolation::Linear,
+    ));
+
+    // Removing the effect alone leaves the lane dangling -> validation rejects
+    // and rolls back.
+    let err = h
+        .execute(
+            &mut p,
+            Box::new(RemoveEffect {
+                track,
+                id: effect_id,
+            }),
+        )
+        .unwrap_err();
+    assert!(matches!(err, CommandError::Validation(_)));
+    assert_eq!(p.track(track).unwrap().effects.len(), 1); // unchanged
 }

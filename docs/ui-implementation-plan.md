@@ -119,16 +119,16 @@ Everything else is GUI composition.
 
 Ordered by value and by what's unblocked today.
 
-### Phase A — "Real controls" (all **Have**, no new milestones)
+### Phase A — "Real controls" (all **Have**, no new milestones) — ✅ DONE
 Wire the panels the backend already supports; biggest visible jump, lowest risk.
 - Detail panel: track **volume**, **mute/solo**, **effect chain list + bypass +
-  add/remove/reorder**, **effect add from a registry**, **output meter** (already
-  have the data).
-- Transport: **BPM** and **time signature** editing (add `SetTempo` /
-  `SetTimeSignature` commands).
-- Top bar: **Save**, **settings modal**, engine-ready indicator.
-- Toasts for command results.
-- Tests: new command unit tests in `daw-commands`; GUI stays manual-verify.
+  remove**, **output meter**. ✅ (effect *add* from a registry → Phase C)
+- Transport: **BPM** editing (`SetTempo`). ✅ (time-signature select → later)
+- Top bar: **Save**, engine-ready indicator. ✅ (settings modal → later)
+- **Live master volume** (`SetMasterGain`, no re-render). ✅
+- Removing an effect cleans up its automation lanes (transaction). ✅
+- Tests: `SetTrackSolo`/`SetTempo`/`SetTimeSignature`/`RemoveAutomationLane`
+  command tests added. ✅
 
 ### Phase B — Arrangement polish (mostly **Have/Partial**)
 - **Zoom** + proper **ruler/lane alignment** (the deferred shared-scroll-area

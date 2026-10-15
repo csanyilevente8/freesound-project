@@ -32,16 +32,37 @@ A thin presenter over `Project` + `daw-commands` + `daw-audio-io`:
   - **S** splits the selected clip at the playhead (one undo unit)
   - **Delete/Backspace** removes the selected clip (`RemoveClip`)
   - **Cmd/Ctrl+Z** / **Shift+Cmd/Ctrl+Z** undo/redo, also in the Edit menu
-- **Transport bar** — Play/Pause (Space), Return-to-start, position readout,
-  L/R peak meters. Pause/resume retains position.
-- **Menu / File → Open** — native file dialog (`rfd`).
+- **Transport bar** — Play/Pause (Space), Return-to-start, position readout
+  (seconds + bars:beats), an editable **BPM** field, and L/R peak meters.
+  Pause/resume retains position.
+- **Detail panel (bottom)** — for the selected track: a **volume** slider
+  (dB-labeled), **Mute**/**Solo**, the **effect chain** (per-effect Bypass and
+  remove), and the **output meter**. Plus a **live master volume** slider.
+  Track controls route through `daw-commands` (undoable); master volume is a
+  live output control sent to the player (`SetMasterGain`).
+- **Menu / File → Open / Save** — native file dialog (`rfd`); versioned save.
 - **Accessibility** — keyboard focus with a visible ring, shortcuts, hover text
   on icon buttons, transport state shown as text (not color alone).
 - **Dark-first theme** using the spec §7.1 tokens.
 
 Edits route through the real command/undo machinery; the GUI never mutates the
-project directly. After an edit, playback stops and the next Play re-renders
-(the pre-rendered buffer is invalidated).
+project directly.
+
+### What is live vs. applied-on-next-play
+
+- **Live (no re-render):** master volume (applied in the player), transport,
+  seek, meters.
+- **Applied on next Play (baked into the pre-rendered buffer):** per-track
+  volume, mute/solo, effect bypass, and clip edits. Editing these while playing
+  no longer restarts playback — the change is recorded and heard on the next
+  Play. Making per-track processing fully live needs the prepared-graph swap
+  (ADR-0007), deferred.
+- **No audible effect yet:** BPM — clips are positioned in sample frames, so
+  tempo only drives the bars:beats readout (it is still an undoable edit).
+  Tempo-relative scheduling is a separate future slice.
+
+Removing an effect also removes any automation lanes that target it, atomically
+and undoably (otherwise the project would be invalid).
 
 ### Known limitation
 

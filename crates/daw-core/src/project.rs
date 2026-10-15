@@ -126,6 +126,46 @@ impl Project {
         self.automation.iter_mut().find(|l| &l.target == target)
     }
 
+    /// Removes the automation lane at `index`, returning it. Index-based so the
+    /// removal can be undone by re-inserting at the same position.
+    #[must_use]
+    pub fn remove_automation_lane(&mut self, index: usize) -> Option<AutomationLane> {
+        if index < self.automation.len() {
+            Some(self.automation.remove(index))
+        } else {
+            None
+        }
+    }
+
+    /// Inserts an automation lane at `index` (clamped to the current length).
+    pub fn insert_automation_lane(&mut self, index: usize, lane: AutomationLane) {
+        let index = index.min(self.automation.len());
+        self.automation.insert(index, lane);
+    }
+
+    /// Returns the indices of automation lanes that target `effect` on `track`
+    /// (any parameter). Useful when removing an effect to clean up its lanes.
+    #[must_use]
+    pub fn automation_lanes_for_effect(
+        &self,
+        track: TrackId,
+        effect: crate::id::EffectId,
+    ) -> Vec<usize> {
+        use crate::automation::AutomationTarget;
+        self.automation
+            .iter()
+            .enumerate()
+            .filter_map(|(i, lane)| match &lane.target {
+                AutomationTarget::EffectParam {
+                    track: t,
+                    effect: e,
+                    ..
+                } if *t == track && *e == effect => Some(i),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// Adds a track and returns its id. Does not enforce uniqueness of the
     /// master role here; call [`Validate::validate`] to check invariants.
     pub fn add_track(&mut self, track: Track) -> TrackId {

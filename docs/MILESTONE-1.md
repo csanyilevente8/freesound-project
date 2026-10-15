@@ -107,7 +107,27 @@ New `daw-audio-io` crate (first audio runtime deps: `cpal` 0.18, `rtrb` 0.4):
 
 ---
 
-## Slice 14 — Editable GUI (clip editing + seek ruler)
+## Slice 15 — GUI Phase A (real track/mix controls)
+
+Wired the mockup's detail panel + transport to the backend (plan Phase A):
+- **Detail panel**: selected-track **volume** (dB), **mute/solo**, **effect
+  chain** (per-effect bypass + remove), **output meter**; a **live master
+  volume** slider (`SetMasterGain`, applied in the player — no re-render).
+- **Transport**: editable **BPM** (`SetTempo`), bars:beats readout; **File →
+  Save**.
+- New undoable commands: `SetTrackSolo`, `SetTempo`, `SetTimeSignature`,
+  `RemoveAutomationLane` / `InsertAutomationLaneAt`.
+- **Fix**: removing an effect now also removes automation lanes targeting it, as
+  one undoable transaction (previously validation correctly rejected the
+  dangling-reference removal).
+- **UX**: editing track volume/mute/solo/bypass/BPM while playing no longer
+  restarts playback (status says "applies on next play"); master volume is
+  genuinely live.
+
+224 tests (+5 command tests). GUI stays feature-gated; headless build/CI
+unaffected; clippy clean (default and gui).
+
+---
 
 Wired the GUI to the `daw-commands` layer so edits are real and undoable:
 - select (single click) / seek (double-click clip, or the new seek **ruler**),

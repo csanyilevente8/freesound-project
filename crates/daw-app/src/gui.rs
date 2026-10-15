@@ -13,9 +13,13 @@
 use eframe::egui;
 use eframe::egui::containers::{CentralPanel, Panel};
 
-use daw_commands::commands::{AddClip, MoveClip, RemoveClip, SetClipGeometry};
+use daw_commands::commands::{
+    AddClip, MoveClip, RemoveClip, SetClipGeometry, SetEffectBypass, SetTrackMute, SetTrackSolo,
+    SetTrackVolume,
+};
 use daw_commands::History;
-use daw_core::id::{ClipId, TrackId};
+use daw_core::audio::Gain;
+use daw_core::id::{ClipId, EffectId, TrackId};
 use daw_core::project::Project;
 use daw_core::time::SampleTime;
 use daw_core::track::TrackKind;
@@ -55,6 +59,9 @@ pub struct DawGui {
     drag: Option<ClipDrag>,
     /// Currently selected clip (for delete/split), if any.
     selected: Option<(TrackId, ClipId)>,
+    /// Live master output gain (linear). Applied in the player in real time via
+    /// `SetMasterGain` — changes are heard immediately without re-rendering.
+    master_gain: f32,
 }
 
 /// What a clip drag is doing.
@@ -108,6 +115,7 @@ impl DawGui {
             history: History::new(),
             drag: None,
             selected: None,
+            master_gain: 1.0,
         }
     }
 
@@ -125,7 +133,9 @@ impl DawGui {
                 .and_then(|p| std::path::Path::new(p).parent())
                 .map(std::path::Path::to_path_buf);
             match playback::start(&self.project, base.as_deref()) {
-                Ok(live) => {
+                Ok(mut live) => {
+                    // Apply the current master gain to the fresh session.
+                    live.handle.set_master_gain(self.master_gain);
                     self.status =
                         format!("playing ({:.2}s @ {} Hz)", live.seconds(), live.device_rate);
                     self.playback = Some(live);
@@ -299,6 +309,54 @@ impl DawGui {
         }
     }
 
+    /// Like [`run_edit`] but does **not** tear down live playback. Used for
+    /// edits whose change is baked into the pre-rendered buffer and so won't be
+    /// heard until the next Play, but where restarting playback would be
+    /// jarring (e.g. dragging a track-volume slider while playing). The change
+    /// is still applied to the project and recorded for undo.
+    ///
+    /// [`run_edit`]: Self::run_edit
+    fn run_edit_keep_playing(&mut self, what: &str, cmd: Box<dyn daw_commands::Command>) {
+        match self.history.execute(&mut self.project, cmd) {
+            Ok(()) => {
+                self.status = if self.is_playing() {
+                    format!("{what} (applies on next play)")
+                } else {
+                    what.to_string()
+                };
+            }
+            Err(e) => self.status = format!("{what} failed: {e}"),
+        }
+    }
+
+    /// Sets the live master output gain. Updates immediately on the running
+    /// player (no re-render) via `SetMasterGain`; retained for future sessions.
+    /// This is **not** an undoable project edit — it is a live output control
+    /// (like a hardware monitor knob), separate from per-track volume.
+    fn set_master_gain_live(&mut self, gain: f32) {
+        self.master_gain = gain.max(0.0);
+        if let Some(live) = &mut self.playback {
+            live.handle.set_master_gain(self.master_gain);
+        }
+        self.status = format!(
+            "master {:+.1} dB",
+            20.0 * self.master_gain.max(1e-6).log10()
+        );
+    }
+
+    /// The track whose controls the detail panel shows: the selected clip's
+    /// track, or the first non-master track if nothing is selected.
+    fn detail_track_id(&self) -> Option<TrackId> {
+        if let Some((t, _)) = self.selected {
+            return Some(t);
+        }
+        self.project
+            .tracks
+            .iter()
+            .find(|t| t.kind != daw_core::track::TrackKind::Master)
+            .map(|t| t.id)
+    }
+
     fn undo(&mut self) {
         match self.history.undo(&mut self.project) {
             Ok(label) => {
@@ -392,6 +450,18 @@ impl DawGui {
             }
         }
     }
+
+    /// Saves the project to its current path (atomic, versioned).
+    fn save(&mut self) {
+        let Some(path) = self.project_path.clone() else {
+            self.status = "no project path (open a project first)".into();
+            return;
+        };
+        match daw_project::save(&self.project, &path) {
+            Ok(()) => self.status = format!("saved {path}"),
+            Err(e) => self.status = format!("save failed: {e}"),
+        }
+    }
 }
 
 impl eframe::App for DawGui {
@@ -438,6 +508,7 @@ impl eframe::App for DawGui {
         self.top_bar(ui);
         self.transport_bar(ui);
         self.status_bar(ui);
+        self.detail_panel(ui);
         self.arrangement(ui);
     }
 }
@@ -449,6 +520,16 @@ impl DawGui {
                 ui.menu_button("File", |ui| {
                     if ui.button("Open project…").clicked() {
                         self.open_dialog();
+                        ui.close();
+                    }
+                    if ui
+                        .add_enabled(
+                            self.project_path.is_some(),
+                            egui::Button::new("Save project"),
+                        )
+                        .clicked()
+                    {
+                        self.save();
                         ui.close();
                     }
                 });
@@ -512,6 +593,34 @@ impl DawGui {
                 let secs = self.playhead as f64 / self.device_rate();
                 ui.label(format!("⏱ {secs:6.2}s"));
 
+                // Musical position: bars:beats from playhead + tempo + time sig.
+                let bpm = self.project.tempo.bpm();
+                let beats_total = secs * bpm / 60.0;
+                let beats_per_bar = f64::from(self.project.time_signature.numerator.max(1));
+                let bar = (beats_total / beats_per_bar).floor() as u64 + 1;
+                let beat = (beats_total % beats_per_bar).floor() as u64 + 1;
+                ui.label(format!("{bar:03}:{beat:02}"));
+
+                ui.separator();
+                // BPM editor (undoable via SetTempo).
+                let mut bpm_edit = bpm;
+                ui.label("BPM");
+                if ui
+                    .add(
+                        egui::DragValue::new(&mut bpm_edit)
+                            .range(40.0..=300.0)
+                            .speed(0.5),
+                    )
+                    .changed()
+                {
+                    if let Some(t) = daw_core::time::Tempo::new(bpm_edit) {
+                        self.run_edit_keep_playing(
+                            "set tempo",
+                            Box::new(daw_commands::commands::SetTempo { tempo: t }),
+                        );
+                    }
+                }
+
                 ui.separator();
                 let (txt, col) = if playing {
                     ("● PLAYING", theme::ACCENT)
@@ -542,6 +651,212 @@ impl DawGui {
                 });
             });
         });
+    }
+
+    /// Bottom detail panel: controls for the selected track (volume, mute/solo),
+    /// its effect chain (bypass/remove), and the master output meter. All edits
+    /// route through `daw-commands` and are undoable.
+    fn detail_panel(&mut self, ui: &mut egui::Ui) {
+        // Deferred edit, applied after drawing (borrow-safe).
+        enum Edit {
+            Volume(TrackId, Gain),
+            Mute(TrackId, bool),
+            Solo(TrackId, bool),
+            Bypass(TrackId, EffectId, bool),
+            RemoveFx(TrackId, EffectId),
+            MasterGain(f32),
+        }
+        let mut edit: Option<Edit> = None;
+
+        let track_id = self.detail_track_id();
+        let peak_l = self.peak_l;
+        let peak_r = self.peak_r;
+        let mut master_gain = self.master_gain;
+
+        Panel::bottom("detail")
+            .resizable(false)
+            .exact_size(176.0)
+            .show(ui, |ui| {
+                ui.add_space(6.0);
+                ui.columns(3, |cols| {
+                    // --- column 0: track controls ---
+                    let ui = &mut cols[0];
+                    if let Some(tid) = track_id {
+                        if let Some(track) = self.project.track(tid) {
+                            ui.heading("Track");
+                            ui.label(egui::RichText::new(&track.name).strong());
+                            ui.add_space(6.0);
+
+                            // Volume slider (linear 0..1.5), labeled in dB.
+                            let mut v = track.volume.factor();
+                            let db = if v <= 1e-6 {
+                                "-inf".to_string()
+                            } else {
+                                format!("{:+.1} dB", 20.0 * v.log10())
+                            };
+                            if ui
+                                .add(
+                                    egui::Slider::new(&mut v, 0.0..=1.5)
+                                        .text(format!("volume ({db})")),
+                                )
+                                .changed()
+                            {
+                                if let Some(g) = Gain::linear(v) {
+                                    edit = Some(Edit::Volume(tid, g));
+                                }
+                            }
+
+                            ui.horizontal(|ui| {
+                                let mut mute = track.mute;
+                                if ui.selectable_label(mute, "Mute").clicked() {
+                                    mute = !mute;
+                                    edit = Some(Edit::Mute(tid, mute));
+                                }
+                                let mut solo = track.solo;
+                                if ui.selectable_label(solo, "Solo").clicked() {
+                                    solo = !solo;
+                                    edit = Some(Edit::Solo(tid, solo));
+                                }
+                            });
+                        }
+                    } else {
+                        cols[0].weak("No track selected.");
+                    }
+
+                    // --- column 1: effect chain ---
+                    let ui = &mut cols[1];
+                    ui.heading("Effect chain");
+                    if let Some(tid) = track_id {
+                        if let Some(track) = self.project.track(tid) {
+                            if track.effects.is_empty() {
+                                ui.weak("No effects. (Add via the CLI for now.)");
+                            }
+                            for fx in &track.effects.effects {
+                                ui.horizontal(|ui| {
+                                    ui.label(&fx.processor_type);
+                                    ui.with_layout(
+                                        egui::Layout::right_to_left(egui::Align::Center),
+                                        |ui| {
+                                            if ui.button("✕").on_hover_text("Remove").clicked() {
+                                                edit = Some(Edit::RemoveFx(tid, fx.id));
+                                            }
+                                            let mut bypassed = fx.bypassed;
+                                            if ui.selectable_label(bypassed, "Bypass").clicked() {
+                                                bypassed = !bypassed;
+                                                edit = Some(Edit::Bypass(tid, fx.id, bypassed));
+                                            }
+                                        },
+                                    );
+                                });
+                            }
+                        }
+                    }
+
+                    // --- column 2: output meter ---
+                    let ui = &mut cols[2];
+                    ui.heading("Output meter");
+                    ui.horizontal(|ui| {
+                        ui.label("L");
+                        meter_bar(ui, peak_l);
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("R");
+                        meter_bar(ui, peak_r);
+                    });
+                    ui.add_space(4.0);
+                    let dev = self.playback.as_ref().map_or_else(
+                        || format!("{} Hz (offline)", self.project.sample_rate.hz()),
+                        |p| format!("{} Hz · stereo", p.device_rate),
+                    );
+                    ui.weak(dev);
+
+                    ui.add_space(6.0);
+                    // Live master output gain — applies instantly during
+                    // playback (no re-render), unlike per-track volume.
+                    let db = if master_gain <= 1e-6 {
+                        "-inf".to_string()
+                    } else {
+                        format!("{:+.1} dB", 20.0 * master_gain.log10())
+                    };
+                    if ui
+                        .add(
+                            egui::Slider::new(&mut master_gain, 0.0..=1.5)
+                                .text(format!("master ({db})")),
+                        )
+                        .on_hover_text("Live master output — changes are heard immediately")
+                        .changed()
+                    {
+                        edit = Some(Edit::MasterGain(master_gain));
+                    }
+                });
+                ui.add_space(6.0);
+            });
+
+        // Apply the collected edit via the command/undo layer.
+        if let Some(e) = edit {
+            match e {
+                Edit::Volume(t, g) => self.run_edit_keep_playing(
+                    "set volume",
+                    Box::new(SetTrackVolume { id: t, volume: g }),
+                ),
+                Edit::Mute(t, m) => self
+                    .run_edit_keep_playing("set mute", Box::new(SetTrackMute { id: t, mute: m })),
+                Edit::Solo(t, s) => self
+                    .run_edit_keep_playing("set solo", Box::new(SetTrackSolo { id: t, solo: s })),
+                Edit::Bypass(t, fx, b) => self.run_edit_keep_playing(
+                    "bypass effect",
+                    Box::new(SetEffectBypass {
+                        track: t,
+                        id: fx,
+                        bypassed: b,
+                    }),
+                ),
+                Edit::RemoveFx(t, fx) => self.remove_effect_with_automation(t, fx),
+                Edit::MasterGain(g) => self.set_master_gain_live(g),
+            }
+        }
+    }
+
+    /// Removes an effect and any automation lanes that target it, as one
+    /// undoable transaction (so the project stays valid — otherwise the lanes
+    /// would dangle and validation would reject the removal).
+    fn remove_effect_with_automation(&mut self, track: TrackId, effect: EffectId) {
+        use daw_commands::commands::{RemoveAutomationLane, RemoveEffect};
+
+        // Collect the targets of lanes controlling this effect (clone them so we
+        // don't borrow the project while editing).
+        let lane_targets: Vec<_> = self
+            .project
+            .automation_lanes_for_effect(track, effect)
+            .into_iter()
+            .filter_map(|i| self.project.automation.get(i).map(|l| l.target.clone()))
+            .collect();
+
+        let result = self
+            .history
+            .transaction(&mut self.project, "remove effect", |proj, tx| {
+                for target in &lane_targets {
+                    tx.execute(
+                        proj,
+                        Box::new(RemoveAutomationLane {
+                            target: target.clone(),
+                        }),
+                    )?;
+                }
+                tx.execute(proj, Box::new(RemoveEffect { track, id: effect }))
+            });
+        match result {
+            Ok(()) => {
+                let n = lane_targets.len();
+                self.status = if n > 0 {
+                    format!("removed effect (+{n} automation lane(s))")
+                } else {
+                    "removed effect".into()
+                };
+                self.invalidate_playback();
+            }
+            Err(e) => self.status = format!("remove effect failed: {e}"),
+        }
     }
 
     fn arrangement(&mut self, ui: &mut egui::Ui) {

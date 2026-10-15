@@ -160,6 +160,67 @@ impl Command for SetTrackMute {
     }
 }
 
+/// Sets a track's solo state.
+pub struct SetTrackSolo {
+    /// Target track.
+    pub id: TrackId,
+    /// New solo state.
+    pub solo: bool,
+}
+
+impl Command for SetTrackSolo {
+    fn label(&self) -> String {
+        "Set Solo".to_string()
+    }
+
+    fn apply(&self, project: &mut Project) -> Result<Box<dyn Command>, CommandError> {
+        let track = project
+            .track_mut(self.id)
+            .ok_or_else(|| not_found("track", self.id))?;
+        let previous = std::mem::replace(&mut track.solo, self.solo);
+        Ok(Box::new(SetTrackSolo {
+            id: self.id,
+            solo: previous,
+        }))
+    }
+}
+
+/// Sets the project tempo.
+pub struct SetTempo {
+    /// New tempo.
+    pub tempo: daw_core::time::Tempo,
+}
+
+impl Command for SetTempo {
+    fn label(&self) -> String {
+        "Set Tempo".to_string()
+    }
+
+    fn apply(&self, project: &mut Project) -> Result<Box<dyn Command>, CommandError> {
+        let previous = std::mem::replace(&mut project.tempo, self.tempo);
+        Ok(Box::new(SetTempo { tempo: previous }))
+    }
+}
+
+/// Sets the project time signature.
+pub struct SetTimeSignature {
+    /// New time signature.
+    pub time_signature: daw_core::time::TimeSignature,
+}
+
+impl Command for SetTimeSignature {
+    fn label(&self) -> String {
+        "Set Time Signature".to_string()
+    }
+
+    fn apply(&self, project: &mut Project) -> Result<Box<dyn Command>, CommandError> {
+        let previous = std::mem::replace(&mut project.time_signature, self.time_signature);
+        Ok(Box::new(SetTimeSignature {
+            time_signature: previous,
+        }))
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Clip commands
 // ---------------------------------------------------------------------------
@@ -641,5 +702,49 @@ impl Command for RemoveAutomationPoint {
             })),
             _ => Err(not_found("automation point at time", self.time.frames())),
         }
+    }
+}
+
+/// Removes an entire automation lane (by target), e.g. when deleting the effect
+/// it controls. The inverse re-inserts the exact lane at its original index.
+pub struct RemoveAutomationLane {
+    /// Target identifying the lane to remove.
+    pub target: AutomationTarget,
+}
+
+impl Command for RemoveAutomationLane {
+    fn label(&self) -> String {
+        "Remove Automation Lane".to_string()
+    }
+
+    fn apply(&self, project: &mut Project) -> Result<Box<dyn Command>, CommandError> {
+        let index = project
+            .automation_index(&self.target)
+            .ok_or_else(|| not_found("automation lane", "for target"))?;
+        let lane = project
+            .remove_automation_lane(index)
+            .ok_or_else(|| not_found("automation lane", index))?;
+        Ok(Box::new(InsertAutomationLaneAt { index, lane }))
+    }
+}
+
+/// Re-inserts a previously removed automation lane at a specific index
+/// (inverse of [`RemoveAutomationLane`]).
+pub struct InsertAutomationLaneAt {
+    /// Index to insert at.
+    pub index: usize,
+    /// The lane to restore (preserves its points and interpolation).
+    pub lane: AutomationLane,
+}
+
+impl Command for InsertAutomationLaneAt {
+    fn label(&self) -> String {
+        "Insert Automation Lane".to_string()
+    }
+
+    fn apply(&self, project: &mut Project) -> Result<Box<dyn Command>, CommandError> {
+        let target = self.lane.target.clone();
+        project.insert_automation_lane(self.index, self.lane.clone());
+        Ok(Box::new(RemoveAutomationLane { target }))
     }
 }
