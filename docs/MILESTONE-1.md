@@ -107,7 +107,22 @@ New `daw-audio-io` crate (first audio runtime deps: `cpal` 0.18, `rtrb` 0.4):
 
 ---
 
-## Slice 13 — egui GUI prototype (ADR-0002)
+## Slice 14 — Editable GUI (clip editing + seek ruler)
+
+Wired the GUI to the `daw-commands` layer so edits are real and undoable:
+- select (single click) / seek (double-click clip, or the new seek **ruler**),
+  move (drag body), trim (drag edges), split at playhead (`S`), delete (`Del`).
+- Undo/redo via Cmd/Ctrl+Z and the Edit menu, backed by `History`; split is one
+  transaction. Edits invalidate the pre-rendered playback buffer (next Play
+  re-renders).
+- Fixed a portability bug along the way: relative media paths resolve against
+  the project file's directory.
+- Known limitation: the seek ruler's ticks are cosmetically misaligned with the
+  clip lanes (deferred with timeline zoom/scroll).
+
+No new dependency. GUI stays feature-gated; 219 headless tests unaffected.
+
+---
 
 A graphical prototype in `daw-app`, behind the **`gui` feature** (so the default
 build/CI stay headless), launched by the `daw-gui` binary:

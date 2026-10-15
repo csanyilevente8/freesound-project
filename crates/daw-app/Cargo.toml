@@ -28,6 +28,7 @@ daw-engine.workspace = true
 daw-render.workspace = true
 daw-media.workspace = true
 daw-audio-io.workspace = true
+daw-commands.workspace = true
 eframe = { workspace = true, optional = true }
 egui = { workspace = true, optional = true }
 rfd = { workspace = true, optional = true }

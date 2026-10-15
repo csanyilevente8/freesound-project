@@ -13,7 +13,11 @@
 use eframe::egui;
 use eframe::egui::containers::{CentralPanel, Panel};
 
+use daw_commands::commands::{AddClip, MoveClip, RemoveClip, SetClipGeometry};
+use daw_commands::History;
+use daw_core::id::{ClipId, TrackId};
 use daw_core::project::Project;
+use daw_core::time::SampleTime;
 use daw_core::track::TrackKind;
 
 use crate::playback::{self, LivePlayback};
@@ -45,6 +49,46 @@ pub struct DawGui {
     status: String,
     /// Pixels per second for the timeline zoom.
     px_per_sec: f32,
+    /// Undo/redo history for edits made in the GUI.
+    history: History,
+    /// Clip currently being dragged.
+    drag: Option<ClipDrag>,
+    /// Currently selected clip (for delete/split), if any.
+    selected: Option<(TrackId, ClipId)>,
+}
+
+/// What a clip drag is doing.
+#[derive(Clone, Copy, PartialEq)]
+enum DragMode {
+    /// Move the whole clip (change timeline_start, keep source_offset/duration).
+    Move,
+    /// Trim the left edge (change start + source_offset + duration together).
+    TrimStart,
+    /// Trim the right edge (change duration only).
+    TrimEnd,
+}
+
+/// In-progress clip drag.
+struct ClipDrag {
+    track: TrackId,
+    clip: ClipId,
+    mode: DragMode,
+    /// Original geometry at grab time.
+    original_start: SampleTime,
+    original_offset: SampleTime,
+    original_duration: SampleTime,
+    /// Pointer x when the drag began (screen px).
+    grab_x: f32,
+    /// Live preview geometry during the drag (committed on release).
+    preview: Option<ClipGeom>,
+}
+
+/// A clip geometry snapshot (preview / commit).
+#[derive(Clone, Copy, PartialEq)]
+struct ClipGeom {
+    start: SampleTime,
+    offset: SampleTime,
+    duration: SampleTime,
 }
 
 impl DawGui {
@@ -61,6 +105,9 @@ impl DawGui {
             peak_r: 0.0,
             status: "ready".into(),
             px_per_sec: 120.0,
+            history: History::new(),
+            drag: None,
+            selected: None,
         }
     }
 
@@ -128,6 +175,166 @@ impl DawGui {
         }
     }
 
+    /// An edit changed the project, so the pre-rendered playback buffer is now
+    /// stale. Tear the session down (keeping the playhead) so the next Play
+    /// re-renders with the new content.
+    fn invalidate_playback(&mut self) {
+        self.playback = None;
+        self.playing = false;
+        self.peak_l = 0.0;
+        self.peak_r = 0.0;
+    }
+
+    /// Moves the playhead to an absolute frame (click-to-seek). Seeks live
+    /// playback if a session is active.
+    fn seek_to(&mut self, frame: u64) {
+        self.playhead = frame;
+        if let Some(live) = &mut self.playback {
+            live.handle.seek(frame);
+        }
+    }
+
+    /// Commits a clip move as an undoable command, then invalidates playback.
+    fn move_clip(&mut self, track: TrackId, clip: ClipId, new_start: SampleTime) {
+        let cmd = Box::new(MoveClip {
+            track,
+            id: clip,
+            timeline_start: new_start,
+        });
+        self.run_edit("move clip", cmd);
+    }
+
+    /// Commits a full-geometry change (trim results) as an undoable command.
+    fn set_clip_geometry(&mut self, track: TrackId, clip: ClipId, g: ClipGeom) {
+        let cmd = Box::new(SetClipGeometry {
+            track,
+            id: clip,
+            timeline_start: g.start,
+            source_offset: g.offset,
+            duration: g.duration,
+        });
+        self.run_edit("trim clip", cmd);
+    }
+
+    /// Deletes the selected clip (undoable).
+    fn delete_selected(&mut self) {
+        let Some((track, clip)) = self.selected else {
+            self.status = "nothing selected to delete".into();
+            return;
+        };
+        let cmd = Box::new(RemoveClip { track, id: clip });
+        self.run_edit("delete clip", cmd);
+        self.selected = None;
+    }
+
+    /// Splits the selected clip at the current playhead (undoable, one unit).
+    fn split_selected_at_playhead(&mut self) {
+        let Some((track_id, clip_id)) = self.selected else {
+            self.status = "select a clip to split".into();
+            return;
+        };
+        let at = SampleTime::new(self.playhead);
+
+        // Compute the two resulting geometries using the model's split math,
+        // without mutating the project yet.
+        let Some(src) = self
+            .project
+            .track(track_id)
+            .and_then(|t| t.clips.iter().find(|c| c.id == clip_id))
+            .cloned()
+        else {
+            self.status = "clip not found".into();
+            return;
+        };
+        let mut left = src.clone();
+        let Some(right) = left.split_at(at) else {
+            self.status = "playhead is not inside the selected clip".into();
+            return;
+        };
+
+        // Apply as one undoable transaction: shrink left + add right.
+        let left_geom = ClipGeom {
+            start: left.timeline_start,
+            offset: left.source_offset,
+            duration: left.duration,
+        };
+        let result = self
+            .history
+            .transaction(&mut self.project, "split clip", |proj, tx| {
+                tx.execute(
+                    proj,
+                    Box::new(SetClipGeometry {
+                        track: track_id,
+                        id: clip_id,
+                        timeline_start: left_geom.start,
+                        source_offset: left_geom.offset,
+                        duration: left_geom.duration,
+                    }),
+                )?;
+                tx.execute(
+                    proj,
+                    Box::new(AddClip {
+                        track: track_id,
+                        clip: right.clone(),
+                    }),
+                )
+            });
+        match result {
+            Ok(()) => {
+                self.status = "split clip".into();
+                self.invalidate_playback();
+            }
+            Err(e) => self.status = format!("split failed: {e}"),
+        }
+    }
+
+    /// Runs a single undoable edit command and reports/invalidates.
+    fn run_edit(&mut self, what: &str, cmd: Box<dyn daw_commands::Command>) {
+        match self.history.execute(&mut self.project, cmd) {
+            Ok(()) => {
+                self.status = what.to_string();
+                self.invalidate_playback();
+            }
+            Err(e) => self.status = format!("{what} failed: {e}"),
+        }
+    }
+
+    fn undo(&mut self) {
+        match self.history.undo(&mut self.project) {
+            Ok(label) => {
+                self.status = format!("undo: {label}");
+                self.clear_stale_selection();
+                self.invalidate_playback();
+            }
+            Err(e) => self.status = format!("{e}"),
+        }
+    }
+
+    fn redo(&mut self) {
+        match self.history.redo(&mut self.project) {
+            Ok(label) => {
+                self.status = format!("redo: {label}");
+                self.clear_stale_selection();
+                self.invalidate_playback();
+            }
+            Err(e) => self.status = format!("{e}"),
+        }
+    }
+
+    /// Drops the selection if the selected clip no longer exists (e.g. after an
+    /// undo/redo that removed it).
+    fn clear_stale_selection(&mut self) {
+        if let Some((track, clip)) = self.selected {
+            let exists = self
+                .project
+                .track(track)
+                .is_some_and(|t| t.clips.iter().any(|c| c.id == clip));
+            if !exists {
+                self.selected = None;
+            }
+        }
+    }
+
     /// Drains playback events to update the playhead/meters and detect the end.
     fn poll_playback(&mut self) {
         let mut reached_end = false;
@@ -178,6 +385,7 @@ impl DawGui {
                     self.reset_to_start();
                     self.project = p;
                     self.project_path = Some(path);
+                    self.history = History::new(); // fresh undo stack for the new project
                     self.status = "opened project".into();
                 }
                 Err(e) => self.status = format!("open failed: {e}"),
@@ -190,12 +398,33 @@ impl eframe::App for DawGui {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_playback();
         // Keep repainting while playing so the playhead animates.
-        if self.is_playing() {
+        if self.is_playing() || self.drag.is_some() {
             ctx.request_repaint();
         }
         // Keyboard: Space toggles play/stop (a core accessibility path).
         if ctx.input(|i| i.key_pressed(egui::Key::Space)) {
             self.toggle_playback();
+        }
+        // Undo/redo: Cmd/Ctrl+Z, and Shift+Cmd/Ctrl+Z for redo.
+        let (undo, redo) = ctx.input(|i| {
+            let cmd = i.modifiers.command; // Cmd on macOS, Ctrl elsewhere
+            let z = i.key_pressed(egui::Key::Z);
+            (
+                cmd && z && !i.modifiers.shift,
+                cmd && z && i.modifiers.shift,
+            )
+        });
+        if undo {
+            self.undo();
+        } else if redo {
+            self.redo();
+        }
+        // Delete/Backspace removes the selected clip; S splits at the playhead.
+        if ctx.input(|i| i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace)) {
+            self.delete_selected();
+        }
+        if ctx.input(|i| i.key_pressed(egui::Key::S) && !i.modifiers.command) {
+            self.split_selected_at_playhead();
         }
     }
 
@@ -220,6 +449,30 @@ impl DawGui {
                 ui.menu_button("File", |ui| {
                     if ui.button("Open project…").clicked() {
                         self.open_dialog();
+                        ui.close();
+                    }
+                });
+                ui.menu_button("Edit", |ui| {
+                    let undo_label = self
+                        .history
+                        .peek_undo()
+                        .map_or("Undo".to_string(), |l| format!("Undo {l}"));
+                    if ui
+                        .add_enabled(self.history.undo_depth() > 0, egui::Button::new(undo_label))
+                        .clicked()
+                    {
+                        self.undo();
+                        ui.close();
+                    }
+                    let redo_label = self
+                        .history
+                        .peek_redo()
+                        .map_or("Redo".to_string(), |l| format!("Redo {l}"));
+                    if ui
+                        .add_enabled(self.history.redo_depth() > 0, egui::Button::new(redo_label))
+                        .clicked()
+                    {
+                        self.redo();
                         ui.close();
                     }
                 });
@@ -292,14 +545,86 @@ impl DawGui {
     }
 
     fn arrangement(&mut self, ui: &mut egui::Ui) {
+        // Deferred edits/seeks collected during drawing, applied after.
+        enum Action {
+            Seek(u64),
+            Select(TrackId, ClipId, Option<u64>), // select a clip; Some(frame) also seeks
+            StartDrag(ClipDrag),
+            DragTo(ClipGeom),
+            EndDrag,
+        }
+        let mut action: Option<Action> = None;
+
+        let rate = f64::from(self.project.sample_rate.hz().max(1));
+        let px_per_sec = self.px_per_sec;
+        let device_rate = self.device_rate();
+        let playhead = self.playhead;
+        let drag_active = self.drag.is_some();
+        let selected = self.selected;
+
+        // frames <-> pixels helpers (lane-relative handled per-lane via left edge).
+        let dx_to_frames = |dx: f32| -> i64 { (dx as f64 / px_per_sec as f64 * rate) as i64 };
+
         CentralPanel::default().show(ui, |ui| {
             ui.heading("Arrangement");
+            ui.weak(
+                "Ruler: click/drag to seek · click clip: select · double-click clip: seek · \
+                 drag body: move · drag edges: trim · S: split · Del: delete · Cmd/Ctrl+Z: undo",
+            );
             ui.add_space(4.0);
 
-            let rate = f64::from(self.project.sample_rate.hz().max(1));
-            let px_per_sec = self.px_per_sec;
-            let device_rate = self.device_rate();
-            let playhead = self.playhead;
+            // Dedicated seek ruler lane: a header spacer + a clickable/draggable
+            // timeline ruler that moves the playhead.
+            {
+                let ruler_h = 22.0;
+                ui.horizontal(|ui| {
+                    ui.allocate_exact_size(egui::vec2(140.0, ruler_h), egui::Sense::hover());
+                    let (rect, resp) = ui.allocate_exact_size(
+                        egui::vec2(ui.available_width().max(200.0), ruler_h),
+                        egui::Sense::click_and_drag(),
+                    );
+                    let painter = ui.painter_at(rect);
+                    painter.rect_filled(rect, 2.0, theme::APP_BG);
+
+                    let x_to_frame = |x: f32| -> u64 {
+                        let secs = ((x - rect.left()).max(0.0) / px_per_sec) as f64;
+                        (secs * rate).round() as u64
+                    };
+
+                    let visible_secs = (rect.width() / px_per_sec).ceil() as i32;
+                    for s in 0..=visible_secs {
+                        let x = rect.left() + s as f32 * px_per_sec;
+                        if x > rect.right() {
+                            break;
+                        }
+                        painter.vline(
+                            x,
+                            egui::Rangef::new(rect.bottom() - 6.0, rect.bottom()),
+                            egui::Stroke::new(1.0, egui::Color32::GRAY),
+                        );
+                        painter.text(
+                            egui::pos2(x + 2.0, rect.top() + 1.0),
+                            egui::Align2::LEFT_TOP,
+                            format!("{s}s"),
+                            egui::FontId::monospace(9.0),
+                            egui::Color32::GRAY,
+                        );
+                    }
+
+                    if resp.clicked() || resp.dragged() {
+                        if let Some(pos) = resp.interact_pointer_pos() {
+                            action = Some(Action::Seek(x_to_frame(pos.x)));
+                        }
+                    }
+
+                    let secs = playhead as f64 / device_rate;
+                    let px = rect.left() + (secs as f32) * px_per_sec;
+                    if px <= rect.right() {
+                        painter.vline(px, rect.y_range(), egui::Stroke::new(1.5, theme::DANGER));
+                    }
+                });
+                ui.add_space(2.0);
+            }
 
             egui::ScrollArea::both().show(ui, |ui| {
                 let only_master = self
@@ -312,6 +637,7 @@ impl DawGui {
                     if track.kind == TrackKind::Master {
                         continue;
                     }
+                    let track_id = track.id;
                     ui.horizontal(|ui| {
                         ui.allocate_ui_with_layout(
                             egui::vec2(140.0, 48.0),
@@ -336,30 +662,121 @@ impl DawGui {
                         );
 
                         let lane_h = 48.0;
-                        let (rect, _resp) = ui.allocate_exact_size(
+                        let (rect, _lane_resp) = ui.allocate_exact_size(
                             egui::vec2(ui.available_width().max(200.0), lane_h),
                             egui::Sense::hover(),
                         );
                         let painter = ui.painter_at(rect);
                         painter.rect_filled(rect, 2.0, theme::PANEL_BG);
 
+                        let x_to_frame = |x: f32| -> u64 {
+                            let secs = ((x - rect.left()).max(0.0) / px_per_sec) as f64;
+                            (secs * rate).round() as u64
+                        };
+
                         for clip in &track.clips {
-                            let x0 = rect.left()
-                                + (clip.timeline_start.frames() as f64 / rate) as f32 * px_per_sec;
-                            let w = (clip.duration.frames() as f64 / rate) as f32 * px_per_sec;
+                            let clip_id = clip.id;
+                            let is_selected = selected == Some((track_id, clip_id));
+
+                            // Live preview geometry if this clip is being dragged.
+                            let (gstart, gdur) = if let Some(d) = &self.drag {
+                                if d.clip == clip_id {
+                                    let g = d.preview.unwrap_or(ClipGeom {
+                                        start: d.original_start,
+                                        offset: d.original_offset,
+                                        duration: d.original_duration,
+                                    });
+                                    (g.start.frames(), g.duration.frames())
+                                } else {
+                                    (clip.timeline_start.frames(), clip.duration.frames())
+                                }
+                            } else {
+                                (clip.timeline_start.frames(), clip.duration.frames())
+                            };
+
+                            let x0 = rect.left() + (gstart as f64 / rate) as f32 * px_per_sec;
+                            let w = ((gdur as f64 / rate) as f32 * px_per_sec).max(4.0);
                             let clip_rect = egui::Rect::from_min_size(
                                 egui::pos2(x0, rect.top() + 4.0),
-                                egui::vec2(w.max(2.0), lane_h - 8.0),
+                                egui::vec2(w, lane_h - 8.0),
                             );
-                            painter.rect_filled(clip_rect, 3.0, theme::CLIP);
+
+                            let id = egui::Id::new(("clip", clip_id.as_uuid()));
+                            let resp = ui.interact(clip_rect, id, egui::Sense::click_and_drag());
+
+                            // Edge zones (8px) for trim; otherwise move.
+                            let edge = 8.0_f32.min(w / 3.0);
+                            let hover_mode = resp.hover_pos().map(|p| {
+                                if p.x <= clip_rect.left() + edge {
+                                    DragMode::TrimStart
+                                } else if p.x >= clip_rect.right() - edge {
+                                    DragMode::TrimEnd
+                                } else {
+                                    DragMode::Move
+                                }
+                            });
+                            if matches!(hover_mode, Some(DragMode::TrimStart | DragMode::TrimEnd)) {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                            }
+
+                            let fill = if is_selected {
+                                theme::ACCENT.gamma_multiply(0.6)
+                            } else if resp.hovered() || resp.dragged() {
+                                theme::ACCENT.gamma_multiply(0.4)
+                            } else {
+                                theme::CLIP
+                            };
+                            painter.rect_filled(clip_rect, 3.0, fill);
+                            let stroke_w = if is_selected { 2.0 } else { 1.0 };
                             painter.rect_stroke(
                                 clip_rect,
                                 3.0,
-                                egui::Stroke::new(1.0, theme::ACCENT),
+                                egui::Stroke::new(stroke_w, theme::ACCENT),
                                 egui::StrokeKind::Inside,
                             );
+
+                            if resp.double_clicked() {
+                                // Double-click: select and seek to the clicked position.
+                                let frame = resp
+                                    .interact_pointer_pos()
+                                    .map_or(gstart, |p| x_to_frame(p.x));
+                                action = Some(Action::Select(track_id, clip_id, Some(frame)));
+                            } else if resp.clicked() {
+                                // Single click: select only.
+                                action = Some(Action::Select(track_id, clip_id, None));
+                            }
+
+                            // Drag lifecycle.
+                            if resp.drag_started() {
+                                if let Some(pos) = resp.interact_pointer_pos() {
+                                    let mode = hover_mode.unwrap_or(DragMode::Move);
+                                    action = Some(Action::StartDrag(ClipDrag {
+                                        track: track_id,
+                                        clip: clip_id,
+                                        mode,
+                                        original_start: clip.timeline_start,
+                                        original_offset: clip.source_offset,
+                                        original_duration: clip.duration,
+                                        grab_x: pos.x,
+                                        preview: None,
+                                    }));
+                                }
+                            } else if resp.dragged() && drag_active {
+                                if let Some(pos) = resp.interact_pointer_pos() {
+                                    if let Some(d) = &self.drag {
+                                        if d.clip == clip_id {
+                                            let delta = dx_to_frames(pos.x - d.grab_x);
+                                            action =
+                                                Some(Action::DragTo(compute_drag_geom(d, delta)));
+                                        }
+                                    }
+                                }
+                            } else if resp.drag_stopped() {
+                                action = Some(Action::EndDrag);
+                            }
                         }
 
+                        // Playhead line.
                         let secs = playhead as f64 / device_rate;
                         let px = rect.left() + (secs as f32) * px_per_sec;
                         if px <= rect.right() {
@@ -378,6 +795,85 @@ impl DawGui {
                 }
             });
         });
+
+        // Apply the collected action after drawing.
+        match action {
+            Some(Action::Seek(frame)) => self.seek_to(frame),
+            Some(Action::Select(t, c, seek)) => {
+                self.selected = Some((t, c));
+                if let Some(frame) = seek {
+                    self.seek_to(frame);
+                }
+            }
+            Some(Action::StartDrag(d)) => {
+                self.selected = Some((d.track, d.clip));
+                self.drag = Some(d);
+            }
+            Some(Action::DragTo(geom)) => {
+                if let Some(d) = &mut self.drag {
+                    d.preview = Some(geom);
+                }
+            }
+            Some(Action::EndDrag) => {
+                if let Some(d) = self.drag.take() {
+                    if let Some(g) = d.preview {
+                        let orig = ClipGeom {
+                            start: d.original_start,
+                            offset: d.original_offset,
+                            duration: d.original_duration,
+                        };
+                        if g != orig {
+                            match d.mode {
+                                DragMode::Move => self.move_clip(d.track, d.clip, g.start),
+                                DragMode::TrimStart | DragMode::TrimEnd => {
+                                    self.set_clip_geometry(d.track, d.clip, g)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            None => {}
+        }
+    }
+}
+
+/// Computes the previewed clip geometry for a drag of `delta` frames in the
+/// drag's mode. Trims are clamped so the clip keeps at least 1 frame and the
+/// source offset never goes negative.
+fn compute_drag_geom(d: &ClipDrag, delta: i64) -> ClipGeom {
+    let start = d.original_start.frames() as i64;
+    let offset = d.original_offset.frames() as i64;
+    let dur = d.original_duration.frames() as i64;
+
+    match d.mode {
+        DragMode::Move => ClipGeom {
+            start: SampleTime::new((start + delta).max(0) as u64),
+            offset: d.original_offset,
+            duration: d.original_duration,
+        },
+        DragMode::TrimStart => {
+            // Move the start edge: start and offset move together, duration
+            // shrinks/grows oppositely. Clamp so offset >= 0 and duration >= 1,
+            // and start can't pass the fixed right edge.
+            let max_right_delta = dur - 1; // can't shrink below 1 frame
+            let min_left_delta = -(offset.min(start)); // offset/start can't go < 0
+            let d2 = delta.clamp(min_left_delta, max_right_delta);
+            ClipGeom {
+                start: SampleTime::new((start + d2) as u64),
+                offset: SampleTime::new((offset + d2) as u64),
+                duration: SampleTime::new((dur - d2) as u64),
+            }
+        }
+        DragMode::TrimEnd => {
+            // Move the right edge: duration only. Keep >= 1 frame.
+            let new_dur = (dur + delta).max(1);
+            ClipGeom {
+                start: d.original_start,
+                offset: d.original_offset,
+                duration: SampleTime::new(new_dur as u64),
+            }
+        }
     }
 }
 

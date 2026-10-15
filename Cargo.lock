@@ -788,6 +788,7 @@ name = "daw-app"
 version = "0.0.1"
 dependencies = [
  "daw-audio-io",
+ "daw-commands",
  "daw-core",
  "daw-engine",
  "daw-media",
