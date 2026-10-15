@@ -9,6 +9,10 @@ This document describes the architecture **as implemented through Milestone 1
 well-separated internal modules. See `docs/adr/` for the decisions behind each
 choice.
 
+> For the diagrammed version (crate graph, threading model, end-to-end flow,
+> and data model) see **[`architecture.md`](architecture.md)**. This file is the
+> text reference; that one has the rendered Mermaid diagrams.
+
 ## Workspace layout
 
 ```
