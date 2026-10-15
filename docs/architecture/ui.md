@@ -65,3 +65,11 @@ documented Slint fallback) would not touch the core.
 The GUI deliberately stays a **presenter**: all edits route through
 `daw-commands`, and all playback through `daw-audio-io`, so the window never
 becomes the source of truth.
+
+## Target design & build-out plan
+
+A visual design mockup for the full interface lives at
+`docs/design/ui-prototype.html` (open it in a browser). The concrete,
+prioritized plan to build it on the existing architecture — mapping each UI
+region to crates/commands and flagging which milestone unblocks each part — is
+in `docs/ui-implementation-plan.md`.
