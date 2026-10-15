@@ -9,10 +9,12 @@
 
 pub mod automation;
 pub mod effects;
+pub mod midi;
 pub mod render;
 pub mod schedule;
 
 pub use automation::automated_project;
 pub use effects::{build_processor, process_chain, ProcessorChain};
+pub use midi::schedule_midi_block;
 pub use render::{render_block, RenderError};
 pub use schedule::{project_length_frames, schedule_track_block, AssetSource};

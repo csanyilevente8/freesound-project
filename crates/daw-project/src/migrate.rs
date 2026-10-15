@@ -36,6 +36,7 @@ pub fn migrate_to_current(mut doc: ProjectDocument) -> Result<ProjectDocument, P
             1 => migrate_1_to_2(doc),
             2 => migrate_2_to_3(doc),
             3 => migrate_3_to_4(doc),
+            4 => migrate_4_to_5(doc),
             // Unreachable: the loop condition guarantees a version below
             // CURRENT, and every such version must have a step above.
             other => {
@@ -74,6 +75,15 @@ fn migrate_2_to_3(mut doc: ProjectDocument) -> ProjectDocument {
 /// list during parsing, so this step only advances the version marker.
 fn migrate_3_to_4(mut doc: ProjectDocument) -> ProjectDocument {
     doc.schema_version = 4;
+    doc
+}
+
+/// Migrates a v4 document to v5.
+///
+/// v4 has no per-track `midi_clips`; serde defaults filled each track with an
+/// empty list during parsing, so this step only advances the version marker.
+fn migrate_4_to_5(mut doc: ProjectDocument) -> ProjectDocument {
+    doc.schema_version = 5;
     doc
 }
 

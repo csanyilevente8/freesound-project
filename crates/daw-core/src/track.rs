@@ -44,10 +44,13 @@ pub struct Track {
     pub mute: bool,
     /// Whether the track is soloed.
     pub solo: bool,
-    /// Audio clips placed on this track's timeline. Empty for non-audio tracks
-    /// in Milestone 1 (MIDI clips arrive at Milestone 4).
+    /// Audio clips placed on this track's timeline. Empty for non-audio tracks.
     #[serde(default)]
     pub clips: Vec<AudioClip>,
+    /// MIDI clips on this track (for MIDI/instrument tracks). Processes through
+    /// the track's built-in instrument (spec §11).
+    #[serde(default)]
+    pub midi_clips: Vec<crate::midi::MidiClip>,
     /// Ordered insert-effect chain (spec §5.6). Processes in list order.
     #[serde(default)]
     pub effects: EffectChain,
@@ -65,6 +68,7 @@ impl Track {
             mute: false,
             solo: false,
             clips: Vec::new(),
+            midi_clips: Vec::new(),
             effects: EffectChain::new(),
         }
     }
@@ -79,6 +83,13 @@ impl Track {
     pub fn add_clip(&mut self, clip: AudioClip) -> crate::id::ClipId {
         let id = clip.id;
         self.clips.push(clip);
+        id
+    }
+
+    /// Adds a MIDI clip to the track and returns its id.
+    pub fn add_midi_clip(&mut self, clip: crate::midi::MidiClip) -> crate::id::ClipId {
+        let id = clip.id;
+        self.midi_clips.push(clip);
         id
     }
 

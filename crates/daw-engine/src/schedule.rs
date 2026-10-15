@@ -78,12 +78,19 @@ pub fn schedule_track_block<S: AssetSource>(
 /// project's content length in frames. Zero if there are no clips.
 #[must_use]
 pub fn project_length_frames(tracks: &[Track]) -> SampleTime {
-    tracks
+    let audio_end = tracks
         .iter()
         .flat_map(|t| t.clips.iter())
         .map(AudioClip::timeline_end)
         .max()
-        .unwrap_or(SampleTime::ZERO)
+        .unwrap_or(SampleTime::ZERO);
+    let midi_end = tracks
+        .iter()
+        .flat_map(|t| t.midi_clips.iter())
+        .map(|c| c.timeline_end())
+        .max()
+        .unwrap_or(SampleTime::ZERO);
+    audio_end.max(midi_end)
 }
 
 #[cfg(test)]

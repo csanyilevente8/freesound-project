@@ -129,7 +129,7 @@ mod tests {
     fn future_version_is_rejected() {
         let p = sample_project();
         let json = to_json(&p).unwrap();
-        let tampered = json.replace("\"schema_version\": 4", "\"schema_version\": 9999");
+        let tampered = json.replace("\"schema_version\": 5", "\"schema_version\": 9999");
         assert!(matches!(
             from_json(&tampered),
             Err(ProjectError::UnsupportedVersion { .. })

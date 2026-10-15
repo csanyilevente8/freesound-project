@@ -18,6 +18,7 @@ pub mod mixer;
 pub mod pan;
 pub mod processor;
 pub mod reverb;
+pub mod synth;
 
 pub use buffer::AudioBuffer;
 pub use compressor::CompressorProcessor;
@@ -30,3 +31,4 @@ pub use mixer::mix_into;
 pub use pan::PanProcessor;
 pub use processor::{AudioProcessor, ProcessConfig};
 pub use reverb::ReverbProcessor;
+pub use synth::{midi_to_hz, Adsr, Synth, Waveform};

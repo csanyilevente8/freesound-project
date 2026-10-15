@@ -26,9 +26,11 @@ pub const FORMAT_MAGIC: &str = "daw-project";
 /// * **3** — Milestone 1: adds per-track insert-effect chains
 ///   (`track.effects`).
 /// * **4** — Milestone 1: adds project-level automation lanes
-///   (`project.automation`). Older files are forward-compatible (the field
-///   defaults to empty) and upgraded by [`crate::migrate::migrate_to_current`].
-pub const CURRENT_SCHEMA_VERSION: u32 = 4;
+///   (`project.automation`).
+/// * **5** — Milestone 1: adds per-track MIDI clips (`track.midi_clips`).
+///   Older files are forward-compatible (the field defaults to empty) and
+///   upgraded by [`crate::migrate::migrate_to_current`].
+pub const CURRENT_SCHEMA_VERSION: u32 = 5;
 
 /// The root serialized document.
 ///

@@ -107,7 +107,27 @@ New `daw-audio-io` crate (first audio runtime deps: `cpal` 0.18, `rtrb` 0.4):
 
 ---
 
-## Slice 16 — Recording (P2)
+## Slice 17 — MIDI + built-in synth (P4, offline core)
+
+Make MIDI audible through the existing render/playback/export path:
+- `daw-core::midi`: `MidiNote` (pitch/velocity/start/duration, frames) and
+  `MidiClip`; `Track.midi_clips`. Schema **v5** + v4→v5 migration; validation
+  (unique clip ids across audio+MIDI, non-zero durations, pitch/velocity range).
+- `daw-dsp::synth`: a polyphonic `Synth` (sine/saw/square/triangle oscillator +
+  ADSR envelope, voice allocation/stealing, velocity response, all-notes-off).
+- `daw-engine::midi`: `schedule_midi_block` renders a MIDI track through a
+  persistent synth with sample-accurate note-on/off; `project_length_frames`
+  accounts for MIDI clips.
+- `daw-render`: `render_project` keeps a per-track synth and mixes MIDI into
+  each track's buffer — so MIDI plays and exports via the same pipeline.
+
+Verified: a MIDI arpeggio renders to a WAV (`samples/midi-arp.wav`), and output
+is block-size-independent (fixed a note-off-on-block-boundary bug). 249 tests.
+
+Deferred (remaining MIDI work): drawing MIDI clips + a piano-roll in the GUI,
+CLI commands to create MIDI, and live MIDI input (`daw-midi` adapter).
+
+---
 
 Live input capture → file → clip, end to end (verified on macOS with a mic):
 - `daw-audio-io`: a `CpalInput` capture backend (confined to `cpal_backend`),

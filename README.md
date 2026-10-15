@@ -30,12 +30,14 @@ cd freesound-project
   survives save/reload, with unknown effects kept as recoverable placeholders.
 - A general **automation** model (lanes targeting track volume or effect
   params; step/linear interpolation) applied during offline render.
-- Versioned, atomic project save/load (JSON, schema v4) with validation and
-  real step-wise migrations (v1→v2→v3→v4).
+- Versioned, atomic project save/load (JSON, schema v5) with validation and
+  real step-wise migrations (v1→…→v5).
 - An offline audio-processing path (no audio device required) with clip
   scheduling, effect-chain processing, and per-block automation.
 - DSP processors: **gain, pan, distortion, resonant filter, delay, reverb,
   parametric EQ, compressor**, and a summing mixer.
+- A **MIDI** note/clip model and a built-in polyphonic **synth** (oscillator +
+  ADSR); MIDI clips render to audio through the same pipeline.
 - **Offline WAV export** (PCM16 / float32), reachable via `daw --export`.
 - **Live audio output** via CPAL (`daw play`), with a real-time-safe player
   (lock-free command/event rings, no allocation in the callback).

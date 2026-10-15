@@ -245,6 +245,15 @@ impl Validate for Project {
                     )));
                 }
             }
+            for clip in &track.midi_clips {
+                clip.validate()?;
+                if !clip_ids.insert(clip.id) {
+                    return Err(ValidationError::new(format!(
+                        "duplicate clip id {}",
+                        clip.id
+                    )));
+                }
+            }
         }
 
         // Automation lanes must be valid and target existing entities.

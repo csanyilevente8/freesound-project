@@ -99,17 +99,21 @@ pub fn render_project<S: AssetSource>(
 
     let block = options.block_frames.max(1);
     let mut pos = 0usize;
+
+    // Persistent per-track synth instances for MIDI tracks (envelope/phase
+    // continuity across blocks). Created lazily for tracks that have MIDI.
+    let mut synths: HashMap<TrackId, daw_dsp::Synth> = HashMap::new();
+    let sr = project.sample_rate.hz() as f32;
+
     while pos < total {
         let this_block = block.min(total - pos);
         let block_start = SampleTime::new(pos as u64);
 
         // Snapshot the project with automation evaluated at this block's start,
-        // so track volumes and effect params reflect automation. Clip content is
-        // unchanged, so scheduling can read from either; we use the snapshot's
-        // tracks for consistency.
+        // so track volumes and effect params reflect automation.
         let snapshot = daw_engine::automated_project(project, block_start);
 
-        // Build per-track source buffers from clips for this block.
+        // Build per-track source buffers from audio clips + MIDI for this block.
         let mut sources: HashMap<TrackId, AudioBuffer> = HashMap::new();
         for track in &snapshot.tracks {
             if track.kind == TrackKind::Master {
@@ -119,11 +123,18 @@ pub fn render_project<S: AssetSource>(
             if !track.clips.is_empty() {
                 schedule_track_block(track, source, block_start, &mut buf);
             }
+            if !track.midi_clips.is_empty() {
+                let synth = synths.entry(track.id).or_insert_with(|| {
+                    daw_dsp::Synth::new(sr, 16, daw_dsp::Waveform::Saw, daw_dsp::Adsr::default())
+                });
+                let mut midi_buf = AudioBuffer::new(channels, this_block);
+                daw_engine::schedule_midi_block(track, synth, pos as u64, &mut midi_buf);
+                buf.add_from(&midi_buf);
+            }
             sources.insert(track.id, buf);
         }
 
         let rendered = render_block(&snapshot, this_block, &sources)?;
-        // Copy the rendered block into the output at `pos`.
         for ch in 0..channels {
             out.channel_mut(ch)[pos..pos + this_block].copy_from_slice(rendered.channel(ch));
         }
