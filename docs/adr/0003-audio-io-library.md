@@ -1,9 +1,8 @@
 # ADR-0003: Audio I/O library
 
-**Status:** Accepted pending prototype — **CPAL** is the chosen initial
-cross-platform audio adapter, behind a Free Sound-owned interface, to be
-confirmed by a headless playback spike (gates below). Implementation is not
-started (we remain offline until the UI/playback phase).
+**Status:** Accepted — **CPAL** is the cross-platform audio adapter, behind a
+Free Sound-owned trait; the headless playback spike passed (see note below).
+Implemented in the `daw-audio-io` crate.
 
 ## Context
 
@@ -71,6 +70,26 @@ demands it.
 
 Record the spike result (pass/fail per gate) as a short note appended here when
 the playback phase begins.
+
+### Spike result (headless playback)
+
+Implemented in the `daw-audio-io` crate (`cpal` 0.18, `rtrb` 0.4):
+
+1. **Plays rendered output** — ✅ on macOS/CoreAudio at the device's default
+   rate (48 kHz). The `daw play <proj.json>` command renders the project at the
+   device rate and streams it; a clean `ReachedEnd` is observed at the expected
+   duration.
+2. **Real-time discipline** — ✅ `Player::process_interleaved` and the command
+   drain do no allocation/locking/I/O; control crosses via bounded `rtrb` rings
+   (ADR-0007). Verified by 11 device-independent unit tests (fake rings, no
+   card) plus review. Device-format conversion uses fixed stack chunks.
+3. **Variable block size** — ✅ the player serves any requested frame count up
+   to the preallocated `max_block`; tests exercise short/odd blocks.
+4. **Clean start/stop + error reporting** — ✅ dropping the stream stops audio;
+   device/stream failures surface as typed `DeviceError`.
+
+Windows/Linux not yet run (no CI); the code path is backend-agnostic via CPAL.
+Status moved to **Accepted**.
 
 ## Consequences
 

@@ -45,6 +45,7 @@ pub fn run(args: &[String]) -> CliResult {
         "automate" => cmd_automate(rest),
         "set-volume" => cmd_set_volume(rest),
         "export" => cmd_export(rest),
+        "play" => cmd_play(rest),
         other => Err(format!("unknown command '{other}'\n\n{}", help_text())),
     }
 }
@@ -66,6 +67,7 @@ fn help_text() -> &'static str {
      \u{20}      e.g. a wah:  automate p.json Gtr effect:filter:cutoff 0:300 24000:3000 48000:300\n\
      \u{20}  set-volume <proj.json> <track> <linear_gain>  Set a track's volume\n\
      \u{20}  export <proj.json> <out.wav> [pcm16|float32]   Render to a WAV\n\
+     \u{20}  play <proj.json> [gain]                Render and play live on the default output device\n\
      \n\
      <track> and <asset> accept either the entity's name (tracks) or its id.\n\
      Effect types: gain, pan, distortion, filter, delay, reverb, eq, compressor.\n\
@@ -397,7 +399,72 @@ fn cmd_export(args: &[String]) -> CliResult {
     ))
 }
 
-// --- human-readable project summary ---------------------------------------
+fn cmd_play(args: &[String]) -> CliResult {
+    use daw_audio_io::{CpalOutput, Event, PreparedBuffer};
+    use std::time::{Duration, Instant};
+
+    let path = args.first().ok_or("play: missing <proj.json>")?;
+    let gain: f32 = args
+        .get(1)
+        .map(|g| g.parse())
+        .transpose()
+        .map_err(|_| "gain must be a number")?
+        .unwrap_or(1.0);
+
+    let project = load(path)?;
+
+    // Render the whole project offline into a stereo buffer at the DEVICE rate,
+    // so playback is correct speed regardless of the project's sample rate.
+    let (device_rate, _device_channels) =
+        CpalOutput::default_output_params().map_err(|e| format!("no audio output: {e}"))?;
+    let mut render_project_at = project.clone();
+    render_project_at.sample_rate = SampleRate::new(device_rate).ok_or("device reported 0 Hz")?;
+
+    let source = source_for(&render_project_at)?;
+    let rendered =
+        daw_render::render_project(&render_project_at, &source, &ExportOptions::default())
+            .map_err(|e| format!("render failed: {e}"))?;
+
+    let frames = rendered.frames();
+    if frames == 0 {
+        return Ok("nothing to play (project has no audible content)".into());
+    }
+    let secs = frames as f64 / f64::from(device_rate);
+
+    let prepared = PreparedBuffer::new(rendered.channel(0).to_vec(), rendered.channel(1).to_vec());
+
+    // Wire the player + handle, start the device, play, wait for the end.
+    let meter_interval = u64::from(device_rate) / 20; // ~20 meter updates/sec
+    let (player, mut handle) =
+        daw_audio_io::playback_channel(prepared, 4096, meter_interval.max(1));
+
+    let _stream = CpalOutput::start(player).map_err(|e| format!("device start failed: {e}"))?;
+    handle.set_master_gain(gain);
+    handle.play();
+
+    // Block until the audio side reports it reached the end (plus a small tail),
+    // or a safety timeout of length+2s.
+    let deadline = Instant::now() + Duration::from_secs_f64(secs + 2.0);
+    let mut last_frame = 0u64;
+    loop {
+        while let Some(ev) = handle.poll_event() {
+            match ev {
+                Event::ReachedEnd => {
+                    return Ok(format!("played {path} ({secs:.3}s @ {device_rate} Hz)"));
+                }
+                Event::Meter { frame, .. } => last_frame = frame,
+                Event::Xrun(_) => {}
+            }
+        }
+        if Instant::now() >= deadline {
+            return Ok(format!(
+                "played {path} (stopped at ~{:.3}s; timeout)",
+                last_frame as f64 / f64::from(device_rate)
+            ));
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
 
 /// Renders a detailed, human-readable summary of a project.
 #[must_use]

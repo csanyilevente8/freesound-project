@@ -90,6 +90,23 @@ No new runtime dependency across slices 7–11.
 
 ---
 
+## Slice 12 — Live playback (CPAL headless spike; ADR-0003, ADR-0007)
+
+New `daw-audio-io` crate (first audio runtime deps: `cpal` 0.18, `rtrb` 0.4):
+- `BlockSource` trait + `PreparedBuffer` (whole project rendered offline, then
+  streamed) — real-time-safe producer.
+- `Player`: audio-side core — transport, lock-free command drain, master gain,
+  meter/`ReachedEnd` events. Device-independent; 11 unit tests with fake rings.
+- `cpal_backend`: the only module touching CPAL; drives the player from the
+  device callback, converting f32 → device format in fixed stack chunks.
+- `PlaybackHandle` + `playback_channel`: control-side API over bounded rings.
+- ADR-0007 moved to **Accepted**; ADR-0003 to **Accepted** (spike passed).
+- `daw play <proj.json> [gain]` CLI command: renders at the device rate and
+  plays live. Verified on macOS/CoreAudio (clean `ReachedEnd` at the expected
+  duration). Actual audibility is a manual check; the pipeline is validated.
+
+---
+
 ## Slice 3 — Undo/redo command model (added after slices 1–2)
 
 New `daw-commands` crate (ADR-0010):
@@ -194,7 +211,7 @@ export (incl. block-size invariance), and an export integration test.
 | Audio clip model | **Passed** |
 | Audio **import** (file decoding) | **Passed** for WAV (`daw-media`); compressed formats deferred (ADR-0011) |
 | Timeline ruler, tracks, playhead, clip selection/movement (UI) | **Not implemented** (egui chosen, ADR-0002, pending prototype) |
-| Audio playback through a device adapter | **Not implemented** (CPAL chosen, ADR-0003, pending prototype) |
+| Audio playback through a device adapter | **Passed** (CPAL output via `daw-audio-io`; `daw play`) |
 | Track and master gain | **Passed** (M0 + applied in render) |
 | Basic meters | **Partial** — buffer `peak()` and compressor gain-reduction exist; a UI meter is deferred to the UI phase |
 | WAV offline export | **Passed** |

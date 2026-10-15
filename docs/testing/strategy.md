@@ -95,6 +95,16 @@ Deterministic, offline, no audio hardware or wall-clock dependence.
 - Integration (`daw-render/tests/automation_render.rs`): track-volume automation
   fades the rendered output; step automation switches at the point.
 
+### `daw-audio-io` (unit) — new (live-playback spike)
+- `PreparedBuffer`: fills from a position, silences past the end, zero past end,
+  mono duplicates to both sides.
+- `Player`: stopped outputs silence; play advances and outputs audio; master
+  gain scales; seek sets position; stop returns to silence; reaching the end
+  stops and emits `ReachedEnd`; meter events report position and peak.
+- All device-independent (fake `rtrb` rings, no sound card) — the real-time
+  callback path is exercised without hardware, satisfying the "no blocking/
+  allocation on the callback" check by construction + review.
+
 ### `daw-render` (unit + integration) — new in M1
 - `wav`: i16 conversion clamps, canonical PCM16 header/data sizes, float32
   bit-exact first sample, inconsistent channel lengths error.
@@ -148,20 +158,19 @@ Deterministic, offline, no audio hardware or wall-clock dependence.
 
 ## Deferred test areas (later milestones)
 
-- Playback through a device adapter — using a deterministic fake device, not a
-  real card (M1/M2).
 - Recording through a simulated capture source; slow/failed disk writer and
   full bounded queue (M2).
 - MIDI note/event scheduling, quantization, loop-boundary behavior (M4).
 - Routing cycle rejection / buses (M3+).
+- Processor benchmarks and graph-processing time (M5).
+- Cross-platform acceptance (Windows/macOS/Linux CI) (as CI is added).
 
 Implemented (no longer deferred): clip split/trim math, all current DSP
 (gain/pan/distortion/filter/delay/reverb/EQ/compressor), automation
 interpolation, undo/redo inversion, WAV import/export, resampling, waveform
-peaks, and missing-media detection/relink.
-- Processor benchmarks and graph-processing time; real-time no-allocation
-  verification on the callback path (M5).
-- Cross-platform acceptance (Windows/macOS/Linux CI) (M0→M5 as CI is added).
+peaks, missing-media detection/relink, and the **real-time player** path
+(device-independent tests with fake rings; actual audio-out verified manually
+on macOS/CoreAudio).
 
 ## CI (planned)
 

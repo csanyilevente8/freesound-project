@@ -16,6 +16,7 @@ daw-project.workspace = true
 daw-engine.workspace = true
 daw-render.workspace = true
 daw-media.workspace = true
+daw-audio-io.workspace = true
 
 [dev-dependencies]
 tempfile = "3.13.0"

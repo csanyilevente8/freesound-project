@@ -22,11 +22,11 @@ accepted; to change a decision, add a new ADR that supersedes the old one.
 |-----|-------|--------|
 | [0001](0001-project-license.md) | Project license | Proposed (GPL-3.0-or-later) |
 | [0002](0002-gui-framework.md) | GUI framework | Accepted pending prototype (egui) |
-| [0003](0003-audio-io-library.md) | Audio I/O library | Accepted pending prototype (CPAL) |
+| [0003](0003-audio-io-library.md) | Audio I/O library | Accepted (CPAL; headless spike done) |
 | [0004](0004-internal-sample-format.md) | Internal sample format & channel model | Accepted |
 | [0005](0005-project-format.md) | Project directory & serialization format | Accepted |
 | [0006](0006-time-representation.md) | Time representation | Accepted |
-| [0007](0007-realtime-communication.md) | Real-time command/parameter communication | Proposed |
+| [0007](0007-realtime-communication.md) | Real-time command/parameter communication | Accepted (initial) |
 | [0008](0008-processor-api.md) | Processor API & graph update strategy | Accepted (initial) |
 | [0009](0009-audio-export-writer.md) | Audio export writer (WAV) | Accepted (initial) |
 | [0010](0010-undo-redo-command-model.md) | Undo/redo and command model | Accepted (initial) |

@@ -22,6 +22,7 @@ freesound/
 │   ├── daw-render/            # offline WAV export (reuses the engine)
 │   ├── daw-media/             # audio import/decoding (WAV), resampling, waveform peaks
 │   ├── daw-commands/          # editing commands + undo/redo history
+│   ├── daw-audio-io/          # real-time playback: CPAL backend + lock-free rings
 │   └── daw-app/               # app shell + `daw` binary (UI framework TBD)
 ├── docs/
 │   ├── architecture/          # this file + per-area docs
@@ -30,11 +31,11 @@ freesound/
 └── free_sound_project_spec.md
 ```
 
-Eight crates exist. `daw-render` (export), `daw-commands` (undo/redo), and
-`daw-media` (import) were added in Milestone 1 as real boundaries emerged. The
-remaining spec crates (`daw-audio-io`, `daw-midi`) are intentionally **not**
-created yet — crates are split when a real boundary emerges, not speculatively
-(spec §4.2).
+Nine crates exist. `daw-render` (export), `daw-commands` (undo/redo),
+`daw-media` (import), and `daw-audio-io` (real-time playback) were added in
+Milestone 1 as real boundaries emerged. The remaining spec crate (`daw-midi`)
+is intentionally **not** created yet — crates are split when a real boundary
+emerges, not speculatively (spec §4.2).
 
 ## Dependency graph (crates)
 
@@ -65,8 +66,8 @@ everything. There are no cycles.
 | DSP/instruments | `daw-dsp` | gain, pan, distortion, filter, delay, reverb, EQ, compressor, mixer |
 | Rendering/export | `daw-render` | offline WAV export (PCM16/float32) |
 | Media import | `daw-media` | WAV decode, resampling, waveform peaks, in-memory `AssetSource` |
-| Platform adapters | — | not built; backend decided (CPAL, ADR-0003, pending prototype) |
-| UI | `daw-app` binary | text shell; framework decided (egui, ADR-0002, pending prototype) |
+| Platform adapters | `daw-audio-io` | CPAL output backend behind a trait; real-time player + lock-free rings |
+| UI | `daw-app` binary | text/CLI shell; framework decided (egui, ADR-0002, pending prototype) |
 
 ## Interface ownership (spec §4.3) — how it is enforced
 
@@ -107,15 +108,19 @@ which is compatible with the project's proposed GPL-3.0-or-later license
 | `serde_json` | 1.0.128 | JSON encoding of project docs | MIT/Apache-2.0 | all | yes (ADR-0005 allows binary later) |
 | `uuid` | 1.10.0 (v4) | Stable entity identifiers | MIT/Apache-2.0 | all | yes (behind `daw_core::id` newtypes) |
 | `thiserror` | 1.0.64 | Ergonomic error enums | MIT/Apache-2.0 | all | yes (std error impls) |
+| `cpal` | 0.18.2 | Cross-platform audio output device (ADR-0003) | MIT/Apache-2.0 | Win/mac/Linux | yes (behind `daw-audio-io` trait) |
+| `rtrb` | 0.4.0 | Real-time-safe SPSC rings for command/event (ADR-0007) | MIT/Apache-2.0 | all | yes (behind the ring API) |
 | `tempfile` | 3.13.0 (dev only) | Temp dirs in tests | MIT/Apache-2.0 | all | yes |
 
-Milestone 1 added **no new runtime dependency**: the WAV export writer
-(ADR-0009) and the WAV import reader (ADR-0011) are hand-written; clip
-scheduling and effect processing read through engine traits. `symphonia` is the
-planned path for compressed-format import later (ADR-0011), not pulled in yet.
+The offline portion of Milestone 1 added no runtime dependency (hand-written
+WAV reader/writer, ADR-0009/0011). The **live-playback** slice added the first
+audio-adjacent runtime deps — `cpal` and `rtrb` — both confined to
+`daw-audio-io`; CPAL/rtrb types do not appear in core/engine. `symphonia` for
+compressed import remains deferred (ADR-0011).
 
-No networking, telemetry, accounts, or cloud dependencies — the application is
-fully offline (spec §1 item 8).
+Audio playback uses the OS audio device (CoreAudio/WASAPI/ALSA via CPAL); there
+is still no networking, telemetry, accounts, or cloud dependency — the
+application works offline and renders without any device (spec §1 item 8).
 
 ## Known limitations
 

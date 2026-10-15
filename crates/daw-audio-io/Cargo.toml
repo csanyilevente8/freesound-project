@@ -1,0 +1,14 @@
+[package]
+name = "daw-audio-io"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Real-time audio device layer and playback engine. Wraps CPAL behind a project-owned trait (ADR-0003) and implements the real-time-safe command/event rings (ADR-0007). Device-library types do not leak into core/engine."
+
+[dependencies]
+daw-core.workspace = true
+daw-dsp.workspace = true
+rtrb.workspace = true
+cpal.workspace = true
+thiserror.workspace = true

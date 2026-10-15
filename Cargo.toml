@@ -8,6 +8,7 @@ members = [
     "crates/daw-render",
     "crates/daw-media",
     "crates/daw-commands",
+    "crates/daw-audio-io",
     "crates/daw-app",
 ]
 
@@ -29,6 +30,10 @@ serde = { version = "1.0.210", features = ["derive"] }
 serde_json = "1.0.128"
 uuid = { version = "1.10.0", features = ["v4", "serde"] }
 thiserror = "1.0.64"
+# Real-time audio I/O and lock-free queue (ADR-0003, ADR-0007). First
+# third-party audio dependencies; both MIT/Apache-2.0.
+cpal = "0.18.2"
+rtrb = "0.4.0"
 
 # Internal crates
 daw-core = { path = "crates/daw-core" }
@@ -38,6 +43,7 @@ daw-engine = { path = "crates/daw-engine" }
 daw-render = { path = "crates/daw-render" }
 daw-media = { path = "crates/daw-media" }
 daw-commands = { path = "crates/daw-commands" }
+daw-audio-io = { path = "crates/daw-audio-io" }
 
 [profile.release]
 opt-level = 3

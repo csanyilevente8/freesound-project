@@ -4,14 +4,13 @@ A free and open-source, cross-platform desktop digital audio workstation (DAW)
 written in Rust. The name is a placeholder and is not hard-coded into the
 architecture.
 
-> **Status: Milestone 1 (in progress) — offline core complete.** Milestone 0
-> (architecture skeleton + offline vertical slice) and the full offline portion
-> of Milestone 1 are done: clip/media model, effects, automation, WAV
-> import/export, undo/redo, and a headless CLI. There is still no live audio,
-> recording, arrangement editor, or GUI toolkit — those are the next phase
-> (egui + CPAL, decided pending prototype). See `docs/MILESTONE-1.md` and
-> `docs/MILESTONE-0.md` for status reports and `docs/architecture/overview.md`
-> for the design.
+> **Status: Milestone 1 (in progress) — offline core complete; live playback
+> working.** Milestone 0 and the offline portion of Milestone 1 are done
+> (clip/media model, effects, automation, WAV import/export, undo/redo, CLI).
+> Live audio **output** now works via CPAL (`daw play`). Still missing:
+> recording, the arrangement/mixer GUI (egui, pending prototype), and MIDI.
+> See `docs/MILESTONE-1.md` and `docs/MILESTONE-0.md` for status reports and
+> `docs/architecture/overview.md` for the design.
 
 ## Clone
 
@@ -37,6 +36,8 @@ cd freesound-project
 - DSP processors: **gain, pan, distortion, resonant filter, delay, reverb,
   parametric EQ, compressor**, and a summing mixer.
 - **Offline WAV export** (PCM16 / float32), reachable via `daw --export`.
+- **Live audio output** via CPAL (`daw play`), with a real-time-safe player
+  (lock-free command/event rings, no allocation in the callback).
 - **WAV import/decoding** with **cubic resampling** and **waveform-peak**
   generation, closing the offline media loop (export → re-import).
 - **Missing-media detection + relink** helpers.
@@ -78,17 +79,28 @@ cargo run -p daw-app --bin daw -- --save ./song.json
 
 # Build a demo tone project and export a stereo WAV (offline, no device)
 cargo run -p daw-app --bin daw -- --export ./demo.wav
+
+# Build a session and play it live on the default output device
+cargo run -p daw-app --bin daw -- new ./song.json
+cargo run -p daw-app --bin daw -- --export ./tone.wav
+cargo run -p daw-app --bin daw -- import ./song.json ./tone.wav
+cargo run -p daw-app --bin daw -- add-track ./song.json Gtr audio
+cargo run -p daw-app --bin daw -- add-clip ./song.json Gtr tone.wav
+cargo run -p daw-app --bin daw -- play ./song.json
+
+# Full CLI reference
+cargo run -p daw-app --bin daw -- help
 ```
 
 ### Platform notes
 
 - **Windows:** use PowerShell or `cmd`. Replace the `curl | sh` rustup line with
   the Windows installer from rustup.rs. All `cargo` commands are identical.
-- **macOS:** no extra system packages are required for Milestone 0 (there is no
-  audio backend yet).
-- **Linux:** no extra system packages are required for Milestone 0. Audio
-  backend development packages (ALSA/JACK) will be needed starting at
-  Milestone 1.
+  Audio output uses WASAPI via CPAL (no extra packages).
+- **macOS:** no extra system packages are required; audio output uses CoreAudio.
+- **Linux:** install ALSA development headers for audio output
+  (`libasound2-dev` on Debian/Ubuntu); JACK is optional. The offline
+  render/export path needs no audio packages.
 
 ## Repository layout
 
@@ -101,6 +113,7 @@ crates/
   daw-render/   # offline WAV export (reuses the engine)
   daw-media/    # audio import/decoding (WAV), resampling, waveform peaks
   daw-commands/ # editing commands + undo/redo history
+  daw-audio-io/ # real-time playback: CPAL output backend + lock-free rings
   daw-app/      # application shell + `daw` binary (GUI framework TBD)
 docs/
   architecture/ # overview, audio-engine, project-format, ui
