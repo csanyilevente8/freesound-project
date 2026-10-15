@@ -31,3 +31,6 @@
 # (panel sizes, last window geometry) must not be committed.
 /layout.local.json
 screenshots/
+
+# Local-only session handoff (contains forbidden words by reference)
+docs/SESSION-HANDOFF.md
