@@ -10,6 +10,17 @@ description = "Application composition and the minimal UI shell entry point. The
 name = "daw"
 path = "src/main.rs"
 
+# Graphical prototype (ADR-0002). Only built with `--features gui` so the
+# default/headless build and CI never require a display or GPU.
+[[bin]]
+name = "daw-gui"
+path = "src/bin/daw_gui.rs"
+required-features = ["gui"]
+
+[features]
+default = []
+gui = ["dep:eframe", "dep:egui", "dep:rfd"]
+
 [dependencies]
 daw-core.workspace = true
 daw-project.workspace = true
@@ -17,6 +28,9 @@ daw-engine.workspace = true
 daw-render.workspace = true
 daw-media.workspace = true
 daw-audio-io.workspace = true
+eframe = { workspace = true, optional = true }
+egui = { workspace = true, optional = true }
+rfd = { workspace = true, optional = true }
 
 [dev-dependencies]
 tempfile = "3.13.0"

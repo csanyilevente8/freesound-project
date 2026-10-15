@@ -107,6 +107,24 @@ New `daw-audio-io` crate (first audio runtime deps: `cpal` 0.18, `rtrb` 0.4):
 
 ---
 
+## Slice 13 — egui GUI prototype (ADR-0002)
+
+A graphical prototype in `daw-app`, behind the **`gui` feature** (so the default
+build/CI stay headless), launched by the `daw-gui` binary:
+- Arrangement timeline (track lanes + clip rectangles + moving playhead),
+  transport bar (Play/Pause via Space, Return-to-start, position, L/R meters),
+  File→Open native dialog (`rfd`), dark-first theme (spec §7.1 tokens).
+- A thin presenter over `Project` + `daw-audio-io`; no egui type leaks below
+  `daw-app`.
+- Correct **pause/resume from the paused position** (the `Player` retains its
+  sample position on Stop; the session stays alive across pause).
+- Fixed a portability bug surfaced here: relative media paths now resolve
+  against the **project file's directory**, so projects open from any CWD.
+- ADR-0002 moved to **Accepted** (prototype passed its gates, incl. the
+  keyboard/accessibility gate). egui/eframe/rfd 0.36/0.17 added as optional deps.
+
+---
+
 ## Slice 3 — Undo/redo command model (added after slices 1–2)
 
 New `daw-commands` crate (ADR-0010):
@@ -210,7 +228,7 @@ export (incl. block-size invariance), and an export integration test.
 |-----------|--------|
 | Audio clip model | **Passed** |
 | Audio **import** (file decoding) | **Passed** for WAV (`daw-media`); compressed formats deferred (ADR-0011) |
-| Timeline ruler, tracks, playhead, clip selection/movement (UI) | **Not implemented** (egui chosen, ADR-0002, pending prototype) |
+| Timeline ruler, tracks, playhead, clip selection/movement (UI) | **Partial** — egui prototype shows tracks/clips + a moving playhead and drives playback; in-GUI selection/movement deferred |
 | Audio playback through a device adapter | **Passed** (CPAL output via `daw-audio-io`; `daw play`) |
 | Track and master gain | **Passed** (M0 + applied in render) |
 | Basic meters | **Partial** — buffer `peak()` and compressor gain-reduction exist; a UI meter is deferred to the UI phase |

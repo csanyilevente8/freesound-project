@@ -5,12 +5,14 @@ written in Rust. The name is a placeholder and is not hard-coded into the
 architecture.
 
 > **Status: Milestone 1 (in progress) — offline core complete; live playback
-> working.** Milestone 0 and the offline portion of Milestone 1 are done
-> (clip/media model, effects, automation, WAV import/export, undo/redo, CLI).
-> Live audio **output** now works via CPAL (`daw play`). Still missing:
-> recording, the arrangement/mixer GUI (egui, pending prototype), and MIDI.
-> See `docs/MILESTONE-1.md` and `docs/MILESTONE-0.md` for status reports and
-> `docs/architecture/overview.md` for the design.
+> and a GUI prototype working.** Milestone 0 and the offline portion of
+> Milestone 1 are done (clip/media model, effects, automation, WAV
+> import/export, undo/redo, CLI). Live audio **output** works via CPAL
+> (`daw play`), and an **egui GUI prototype** (`daw-gui`, behind the `gui`
+> feature) shows the timeline/transport and drives live playback. Still missing:
+> in-GUI editing, recording, and MIDI. See `docs/MILESTONE-1.md` and
+> `docs/MILESTONE-0.md` for status reports and
+> `docs/architecture/architecture.md` for the design + diagrams.
 
 ## Clone
 
@@ -90,6 +92,9 @@ cargo run -p daw-app --bin daw -- play ./song.json
 
 # Full CLI reference
 cargo run -p daw-app --bin daw -- help
+
+# Launch the egui GUI prototype (opt-in; shows timeline + transport, plays live)
+cargo run -p daw-app --features gui --bin daw-gui -- ./song.json
 ```
 
 ### Platform notes

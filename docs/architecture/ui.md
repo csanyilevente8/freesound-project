@@ -1,50 +1,49 @@
 # UI
 
-Status: **Minimal, framework-agnostic shell.** The GUI framework is decided —
-**egui**, accepted pending a prototype (ADR-0002) — but not yet implemented; the
-shell is still text-only.
+Status: **CLI shell + egui prototype.** The GUI framework is decided and
+implemented — **egui/eframe** (ADR-0002) — behind the `gui` feature of
+`daw-app`. The headless CLI remains the default front end.
 
-## What exists (M0)
+## Two front ends, one `daw-app`
 
-- `daw_app::AppState` — a small, UI-framework-independent application state
-  holding the open `Project`, plus a `describe()` method that renders a
-  human-readable summary.
-- A `daw` binary that creates a new empty project, prints its summary, and
-  optionally (`--save <path>`) saves and reloads it to demonstrate the
-  versioned persistence round-trip.
+- **CLI** (`daw` binary, default) — builds/inspects/renders/plays projects from
+  the terminal. Always available, no GUI deps.
+- **GUI** (`daw-gui` binary, `--features gui`) — the egui prototype. Optional so
+  the default build and CI never pull windowing/GPU dependencies.
 
-Example output:
+```bash
+# CLI (default)
+cargo run -p daw-app --bin daw -- help
 
-```
-Project: Untitled
-  id:            <uuid>
-  sample rate:   48000 Hz
-  tempo:         120 bpm
-  time sig:      4/4
-  tracks:        1
-    [0] master "Master"
-
-Status: no audio device configured (offline). Playback and recording are not
-implemented in Milestone 0.
+# GUI (opt-in)
+cargo run -p daw-app --features gui --bin daw-gui -- path/to/project.json
 ```
 
-The shell explicitly states that playback/recording are not implemented — it
-does not pretend to be a working DAW UI.
+## What the GUI prototype does (ADR-0002 gates)
 
-## Why no GUI yet
+A thin presenter over `Project` + `daw-audio-io`:
 
-The offline slices prove the project model, serialization, DSP, effects, import,
-and undo/redo without a GUI. The toolkit is now chosen — **egui** (ADR-0002),
-accepted pending a prototype whose gates explicitly include an
-accessibility/keyboard check — but implementation waits for the UI phase. The
-framework-agnostic `AppState` + `daw-commands` boundary means the frontend
-becomes a thin presenter and cannot leak toolkit types into the core crates; if
-the egui accessibility gate fails, switching to Slint touches only the UI layer.
+- **Arrangement timeline** — track lanes with clip rectangles and a moving
+  playhead.
+- **Transport bar** — Play/Pause (Space), Return-to-start, position readout,
+  L/R peak meters. Pause/resume retains position (the real-time `Player` keeps
+  its sample position across Stop).
+- **Menu / File → Open** — native file dialog (`rfd`).
+- **Accessibility** — keyboard focus with a visible ring, Space shortcut, hover
+  text on icon buttons, and transport state shown as text (not color alone).
+- **Dark-first theme** using the spec §7.1 tokens.
 
-## Deferred (spec §7)
+No egui type appears in any crate below `daw-app`; a future frontend swap (the
+documented Slint fallback) would not touch the core.
 
-The entire graphical interface: main window regions (menu/transport/arrangement
-/mixer/browser-inspector), the arrangement timeline, mixer channel strips, the
-piano roll, effect editors, the browser, device preferences, dialogs, theming
-(dark-first with the proposed tokens), and the accessibility pass. These arrive
-alongside the features they present, starting at Milestone 1.
+## Not yet in the GUI
+
+- Editing in the window (drag clips, edit effects/automation) — the
+  `daw-commands` layer exists and will be wired to the timeline next.
+- Click-to-seek / scrub, zoom controls, mixer view, piano roll, inspector,
+  browser — later slices.
+- A deeper screen-reader pass (AccessKit) beyond the keyboard/label basics.
+
+The GUI deliberately stays a **presenter**: all edits will route through
+`daw-commands`, and all playback through `daw-audio-io`, so the window never
+becomes the source of truth.

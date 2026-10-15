@@ -5,5 +5,9 @@
 
 pub mod app;
 pub mod cli;
+pub mod playback;
+
+#[cfg(feature = "gui")]
+pub mod gui;
 
 pub use app::{AppState, SineSource};

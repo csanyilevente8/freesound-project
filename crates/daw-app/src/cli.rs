@@ -170,17 +170,40 @@ fn apply_params(mut effect: EffectInstance, pairs: &[String]) -> Result<EffectIn
     Ok(effect)
 }
 
-/// Builds a `MemoryAssetSource` by importing every asset's stored path.
-fn source_for(project: &Project) -> Result<MemoryAssetSource, String> {
+/// Builds a `MemoryAssetSource` by importing every asset's stored path,
+/// resolving **relative** paths against `base_dir` (typically the directory of
+/// the project file). Absolute paths are used as-is. This makes a project
+/// openable from any working directory (spec §6/§12 portability).
+pub(crate) fn source_for_at(
+    project: &Project,
+    base_dir: Option<&Path>,
+) -> Result<MemoryAssetSource, String> {
     let mut src = MemoryAssetSource::new();
     for asset in &project.assets {
-        // Re-import at the project rate (resampling if needed).
-        let imported = daw_media::import_wav_at(&asset.path, project.sample_rate)
+        let resolved = resolve_media_path(&asset.path, base_dir);
+        let imported = daw_media::import_wav_at(&resolved, project.sample_rate)
             .map_err(|e| format!("failed to re-import asset {}: {e}", asset.path))?;
-        // Register under the project's asset id (not the freshly generated one).
         src.insert(asset.id, imported.audio);
     }
     Ok(src)
+}
+
+/// Resolves a stored media path: absolute paths unchanged; relative paths joined
+/// to `base_dir` when provided, else left relative (current-dir behavior).
+pub(crate) fn resolve_media_path(stored: &str, base_dir: Option<&Path>) -> std::path::PathBuf {
+    let p = Path::new(stored);
+    match base_dir {
+        Some(dir) if p.is_relative() => dir.join(p),
+        _ => p.to_path_buf(),
+    }
+}
+
+/// The directory containing a project file, for resolving relative media paths.
+pub(crate) fn project_dir(project_path: &str) -> Option<std::path::PathBuf> {
+    Path::new(project_path)
+        .parent()
+        .filter(|p| !p.as_os_str().is_empty())
+        .map(Path::to_path_buf)
 }
 
 // --- commands --------------------------------------------------------------
@@ -375,7 +398,7 @@ fn cmd_export(args: &[String]) -> CliResult {
         _ => WavFormat::Pcm16,
     };
     let p = load(path)?;
-    let source = source_for(&p)?;
+    let source = source_for_at(&p, project_dir(path).as_deref())?;
     daw_render::export_wav(
         &p,
         &source,
@@ -420,7 +443,7 @@ fn cmd_play(args: &[String]) -> CliResult {
     let mut render_project_at = project.clone();
     render_project_at.sample_rate = SampleRate::new(device_rate).ok_or("device reported 0 Hz")?;
 
-    let source = source_for(&render_project_at)?;
+    let source = source_for_at(&render_project_at, project_dir(path).as_deref())?;
     let rendered =
         daw_render::render_project(&render_project_at, &source, &ExportOptions::default())
             .map_err(|e| format!("render failed: {e}"))?;

@@ -21,7 +21,7 @@ accepted; to change a decision, add a new ADR that supersedes the old one.
 | ADR | Title | Status |
 |-----|-------|--------|
 | [0001](0001-project-license.md) | Project license | Proposed (GPL-3.0-or-later) |
-| [0002](0002-gui-framework.md) | GUI framework | Accepted pending prototype (egui) |
+| [0002](0002-gui-framework.md) | GUI framework | Accepted (egui/eframe; prototype passed) |
 | [0003](0003-audio-io-library.md) | Audio I/O library | Accepted (CPAL; headless spike done) |
 | [0004](0004-internal-sample-format.md) | Internal sample format & channel model | Accepted |
 | [0005](0005-project-format.md) | Project directory & serialization format | Accepted |

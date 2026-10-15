@@ -1,8 +1,8 @@
 # ADR-0002: GUI framework
 
-**Status:** Accepted pending prototype — **egui/eframe** is the chosen default,
-to be confirmed once a time-boxed prototype passes the gates below. Implementation
-is not started (we remain offline until the UI/playback phase).
+**Status:** Accepted — **egui/eframe** (0.36). The prototype passed its gates
+(see the result note below) and is implemented behind the `gui` feature of
+`daw-app` (`daw-gui` binary).
 
 ## Context
 
@@ -62,6 +62,36 @@ Windows/Linux:
 
 Record the prototype result (pass/fail per gate) as a short note appended here
 when the UI phase begins.
+
+### Prototype result (egui/eframe 0.36)
+
+Implemented in `daw-app` behind the `gui` feature (`daw-gui` binary), as a thin
+presenter over `Project` + `daw-audio-io`. Verified manually on macOS:
+
+1. **Custom timeline** — ✅ track lanes with clip rectangles drawn on a painter,
+   plus a moving playhead line.
+2. **Panel layout** — ✅ top menu, transport, bottom status, central
+   arrangement panels (egui panels).
+3. **Accessibility / keyboard (gating)** — ✅ Tab moves focus with a visible
+   ring; **Space** toggles play/pause; icon buttons have hover text; transport
+   state is shown as **text** ("● PLAYING / ⏸ PAUSED"), not color alone.
+   The known egui weak spot cleared at the prototype level; a deeper
+   screen-reader pass (AccessKit) remains future work but is not blocking.
+4. **Native file dialog** — ✅ File → Open via `rfd`.
+5. **High-DPI** — ✅ crisp on a Retina display.
+
+Also validated: live playback driven from the transport, correct **pause/resume
+from the paused position** (the real-time `Player` retains position on Stop),
+and L/R peak meters animating from meter events.
+
+**Isolation:** egui/eframe/rfd are optional, gated behind the `gui` feature, so
+the default build, CI, and all 219 headless tests never pull windowing/GPU deps.
+No egui type appears in any crate below `daw-app`.
+
+Status moved to **Accepted**. Windows/Linux not yet run (no CI); the egui path
+is cross-platform. If a future accessibility requirement exceeds egui+AccessKit,
+Slint remains the documented fallback — and because the GUI lives only in
+`daw-app`, switching would not touch the core.
 
 ## Consequences
 

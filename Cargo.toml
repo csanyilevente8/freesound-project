@@ -34,6 +34,11 @@ thiserror = "1.0.64"
 # third-party audio dependencies; both MIT/Apache-2.0.
 cpal = "0.18.2"
 rtrb = "0.4.0"
+# GUI (ADR-0002, egui — pending prototype). Optional, behind the `gui` feature
+# of daw-app so headless builds/CI never pull windowing/GPU deps.
+eframe = "0.36.2"
+egui = "0.36.2"
+rfd = "0.17.2"
 
 # Internal crates
 daw-core = { path = "crates/daw-core" }

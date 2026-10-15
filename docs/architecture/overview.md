@@ -71,7 +71,7 @@ everything. There are no cycles.
 | Rendering/export | `daw-render` | offline WAV export (PCM16/float32) |
 | Media import | `daw-media` | WAV decode, resampling, waveform peaks, in-memory `AssetSource` |
 | Platform adapters | `daw-audio-io` | CPAL output backend behind a trait; real-time player + lock-free rings |
-| UI | `daw-app` binary | text/CLI shell; framework decided (egui, ADR-0002, pending prototype) |
+| UI | `daw-app` (CLI + egui `gui` feature) | CLI shell + egui prototype (timeline, transport, live playback) |
 
 ## Interface ownership (spec §4.3) — how it is enforced
 
@@ -114,13 +114,16 @@ which is compatible with the project's proposed GPL-3.0-or-later license
 | `thiserror` | 1.0.64 | Ergonomic error enums | MIT/Apache-2.0 | all | yes (std error impls) |
 | `cpal` | 0.18.2 | Cross-platform audio output device (ADR-0003) | MIT/Apache-2.0 | Win/mac/Linux | yes (behind `daw-audio-io` trait) |
 | `rtrb` | 0.4.0 | Real-time-safe SPSC rings for command/event (ADR-0007) | MIT/Apache-2.0 | all | yes (behind the ring API) |
+| `eframe` / `egui` | 0.36.2 | GUI (ADR-0002), optional behind `gui` feature | MIT/Apache-2.0 | Win/mac/Linux | yes (GUI only in `daw-app`; Slint fallback) |
+| `rfd` | 0.17.2 | Native file dialogs (GUI), optional | MIT | Win/mac/Linux | yes |
 | `tempfile` | 3.13.0 (dev only) | Temp dirs in tests | MIT/Apache-2.0 | all | yes |
 
 The offline portion of Milestone 1 added no runtime dependency (hand-written
-WAV reader/writer, ADR-0009/0011). The **live-playback** slice added the first
-audio-adjacent runtime deps — `cpal` and `rtrb` — both confined to
-`daw-audio-io`; CPAL/rtrb types do not appear in core/engine. `symphonia` for
-compressed import remains deferred (ADR-0011).
+WAV reader/writer, ADR-0009/0011). The **live-playback** slice added `cpal` and
+`rtrb` (confined to `daw-audio-io`), and the **GUI** slice added `eframe`/`egui`/
+`rfd` — all **optional behind the `gui` feature** of `daw-app`, so the default
+build, CI, and the 219 headless tests never pull windowing/GPU deps. `symphonia`
+for compressed import remains deferred (ADR-0011).
 
 Audio playback uses the OS audio device (CoreAudio/WASAPI/ALSA via CPAL); there
 is still no networking, telemetry, accounts, or cloud dependency — the
