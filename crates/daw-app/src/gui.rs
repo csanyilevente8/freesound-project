@@ -53,6 +53,8 @@ pub struct DawGui {
     status: String,
     /// Pixels per second for the timeline zoom.
     px_per_sec: f32,
+    /// Snap edits to a grid (bar/beat); `None` = no snapping (free).
+    snap: Option<SnapGrid>,
     /// Undo/redo history for edits made in the GUI.
     history: History,
     /// Clip currently being dragged.
@@ -64,6 +66,15 @@ pub struct DawGui {
     master_gain: f32,
     /// Active recording session, if currently recording.
     recording: Option<crate::record::RecordingSession>,
+}
+
+/// Snap grid resolution for edits.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum SnapGrid {
+    /// Snap to bars.
+    Bar,
+    /// Snap to beats (quarter notes).
+    Beat,
 }
 
 /// What a clip drag is doing.
@@ -114,6 +125,7 @@ impl DawGui {
             peak_r: 0.0,
             status: "ready".into(),
             px_per_sec: 120.0,
+            snap: Some(SnapGrid::Beat),
             history: History::new(),
             drag: None,
             selected: None,
@@ -397,6 +409,36 @@ impl DawGui {
             .map(|t| t.id)
     }
 
+    /// Frames per grid division under the current snap setting (or `None` if
+    /// snapping is off). Derived from tempo + time signature + sample rate.
+    fn snap_frames(&self) -> Option<u64> {
+        let grid = self.snap?;
+        let sr = f64::from(self.project.sample_rate.hz());
+        let bpm = self.project.tempo.bpm();
+        if bpm <= 0.0 {
+            return None;
+        }
+        let frames_per_beat = sr * 60.0 / bpm;
+        let div = match grid {
+            SnapGrid::Beat => frames_per_beat,
+            SnapGrid::Bar => {
+                frames_per_beat * f64::from(self.project.time_signature.numerator.max(1))
+            }
+        };
+        Some(div.round().max(1.0) as u64)
+    }
+
+    /// Quantizes a frame position to the nearest grid line (no-op if snap off).
+    fn snap(&self, frame: u64) -> u64 {
+        match self.snap_frames() {
+            Some(div) if div > 0 => {
+                let d = div as f64;
+                ((frame as f64 / d).round() * d).round() as u64
+            }
+            _ => frame,
+        }
+    }
+
     fn undo(&mut self) {
         match self.history.undo(&mut self.project) {
             Ok(label) => {
@@ -547,6 +589,7 @@ impl eframe::App for DawGui {
 
         self.top_bar(ui);
         self.transport_bar(ui);
+        self.toolbar(ui);
         self.status_bar(ui);
         self.detail_panel(ui);
         self.arrangement(ui);
@@ -718,6 +761,47 @@ impl DawGui {
                         .map_or("offline".to_string(), |p| format!("{} Hz", p.device_rate));
                     ui.label(format!("output: {dev}"));
                 });
+            });
+        });
+    }
+
+    /// Workspace toolbar: zoom and grid-snap controls for the arrangement.
+    fn toolbar(&mut self, ui: &mut egui::Ui) {
+        Panel::top("workspace_toolbar").show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Arrangement");
+                ui.separator();
+
+                // Snap selector.
+                let snap_label = match self.snap {
+                    None => "Snap: off",
+                    Some(SnapGrid::Beat) => "Snap: beat",
+                    Some(SnapGrid::Bar) => "Snap: bar",
+                };
+                ui.menu_button(snap_label, |ui| {
+                    if ui.button("Off").clicked() {
+                        self.snap = None;
+                        ui.close();
+                    }
+                    if ui.button("Beat").clicked() {
+                        self.snap = Some(SnapGrid::Beat);
+                        ui.close();
+                    }
+                    if ui.button("Bar").clicked() {
+                        self.snap = Some(SnapGrid::Bar);
+                        ui.close();
+                    }
+                });
+
+                ui.separator();
+                ui.label("Zoom");
+                if ui.button("−").on_hover_text("Zoom out").clicked() {
+                    self.px_per_sec = (self.px_per_sec / 1.25).max(10.0);
+                }
+                if ui.button("+").on_hover_text("Zoom in").clicked() {
+                    self.px_per_sec = (self.px_per_sec * 1.25).min(2000.0);
+                }
+                ui.weak(format!("{:.0} px/s", self.px_per_sec));
             });
         });
     }
@@ -1233,9 +1317,46 @@ impl DawGui {
                         };
                         if g != orig {
                             match d.mode {
-                                DragMode::Move => self.move_clip(d.track, d.clip, g.start),
-                                DragMode::TrimStart | DragMode::TrimEnd => {
-                                    self.set_clip_geometry(d.track, d.clip, g)
+                                DragMode::Move => {
+                                    let start = daw_core::time::SampleTime::new(
+                                        self.snap(g.start.frames()),
+                                    );
+                                    self.move_clip(d.track, d.clip, start);
+                                }
+                                DragMode::TrimEnd => {
+                                    // Snap the right edge; adjust duration.
+                                    let end = self.snap(g.start.frames() + g.duration.frames());
+                                    let start = g.start.frames();
+                                    let dur = end.saturating_sub(start).max(1);
+                                    self.set_clip_geometry(
+                                        d.track,
+                                        d.clip,
+                                        ClipGeom {
+                                            start: g.start,
+                                            offset: g.offset,
+                                            duration: daw_core::time::SampleTime::new(dur),
+                                        },
+                                    );
+                                }
+                                DragMode::TrimStart => {
+                                    // Snap the left edge; keep the right edge fixed.
+                                    let right = g.start.frames() + g.duration.frames();
+                                    let new_start =
+                                        self.snap(g.start.frames()).min(right.saturating_sub(1));
+                                    let delta = new_start as i64 - d.original_start.frames() as i64;
+                                    let offset =
+                                        (d.original_offset.frames() as i64 + delta).max(0) as u64;
+                                    self.set_clip_geometry(
+                                        d.track,
+                                        d.clip,
+                                        ClipGeom {
+                                            start: daw_core::time::SampleTime::new(new_start),
+                                            offset: daw_core::time::SampleTime::new(offset),
+                                            duration: daw_core::time::SampleTime::new(
+                                                right.saturating_sub(new_start).max(1),
+                                            ),
+                                        },
+                                    );
                                 }
                             }
                         }
