@@ -4,11 +4,21 @@ A free and open-source, cross-platform desktop digital audio workstation (DAW)
 written in Rust. The name is a placeholder and is not hard-coded into the
 architecture.
 
-> **Status: Milestone 1 (in progress) — offline clip model, project schema v2,
-> and WAV export.** Milestone 0 (architecture skeleton + offline vertical slice)
-> is complete. There is still no live audio, recording, arrangement editor, or
-> GUI toolkit. See `docs/MILESTONE-1.md` and `docs/MILESTONE-0.md` for status
-> reports and `docs/architecture/overview.md` for the design.
+> **Status: Milestone 1 (in progress) — offline core complete.** Milestone 0
+> (architecture skeleton + offline vertical slice) and the full offline portion
+> of Milestone 1 are done: clip/media model, effects, automation, WAV
+> import/export, undo/redo, and a headless CLI. There is still no live audio,
+> recording, arrangement editor, or GUI toolkit — those are the next phase
+> (egui + CPAL, decided pending prototype). See `docs/MILESTONE-1.md` and
+> `docs/MILESTONE-0.md` for status reports and `docs/architecture/overview.md`
+> for the design.
+
+## Clone
+
+```bash
+git clone git@github.com:csanyilevente8/freesound-project.git
+cd freesound-project
+```
 
 ## What works today
 
