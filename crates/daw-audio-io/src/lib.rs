@@ -19,12 +19,16 @@ pub mod cpal_backend;
 pub mod handle;
 pub mod message;
 pub mod player;
+pub mod record;
+pub mod record_wav;
 pub mod source;
 
 pub use cpal_backend::{AudioOutput, CpalOutput, DeviceError};
 pub use handle::PlaybackHandle;
 pub use message::{Command, Event};
 pub use player::{Player, Transport};
+pub use record::{start_recording, CaptureProducer, RecordHandle, RecordOutcome};
+pub use record_wav::{create_wav_file, RecordSink, WavStreamWriter};
 pub use source::{BlockSource, PreparedBuffer};
 
 use rtrb::RingBuffer;
