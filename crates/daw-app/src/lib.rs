@@ -6,6 +6,7 @@
 pub mod app;
 pub mod cli;
 pub mod playback;
+pub mod record;
 
 #[cfg(feature = "gui")]
 pub mod gui;

@@ -23,7 +23,7 @@ pub mod record;
 pub mod record_wav;
 pub mod source;
 
-pub use cpal_backend::{AudioOutput, CpalOutput, DeviceError};
+pub use cpal_backend::{AudioOutput, CpalInput, CpalOutput, DeviceError};
 pub use handle::PlaybackHandle;
 pub use message::{Command, Event};
 pub use player::{Player, Transport};

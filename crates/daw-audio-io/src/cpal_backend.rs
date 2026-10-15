@@ -30,6 +30,9 @@ pub enum DeviceError {
     /// No default output device is available.
     #[error("no default output device")]
     NoOutputDevice,
+    /// No default input device is available.
+    #[error("no default input device")]
+    NoInputDevice,
     /// Could not query the default output configuration.
     #[error("no default output config: {0}")]
     NoConfig(String),
@@ -230,5 +233,137 @@ fn write_converted<S, T, F>(
             }
         }
         done += n;
+    }
+}
+
+// ===========================================================================
+// Input (capture) backend
+// ===========================================================================
+
+use crate::record::CaptureProducer;
+
+/// A live CPAL input stream pushing captured samples into a [`CaptureProducer`].
+/// Dropping it stops capture.
+pub struct CpalInput {
+    _stream: cpal::Stream,
+    sample_rate: u32,
+    channels: u16,
+}
+
+impl CpalInput {
+    /// Sample rate the input stream opened at.
+    #[must_use]
+    pub fn sample_rate(&self) -> u32 {
+        self.sample_rate
+    }
+
+    /// Channel count the input stream opened with.
+    #[must_use]
+    pub fn channels(&self) -> u16 {
+        self.channels
+    }
+
+    /// Default input device's sample rate and channel count, without opening a
+    /// stream (so the recorder/WAV can be configured to match).
+    ///
+    /// # Errors
+    /// Returns [`DeviceError`] if no input device/config is available.
+    pub fn default_input_params() -> Result<(u32, u16), DeviceError> {
+        let host = cpal::default_host();
+        let device = host
+            .default_input_device()
+            .ok_or(DeviceError::NoInputDevice)?;
+        let config = device
+            .default_input_config()
+            .map_err(|e| DeviceError::NoConfig(e.to_string()))?;
+        Ok((config.sample_rate(), config.channels()))
+    }
+
+    /// Opens the default input device and streams captured interleaved `f32`
+    /// samples into `producer`. The stream runs until the returned handle is
+    /// dropped.
+    ///
+    /// The callback is the real-time capture thread: it only converts the
+    /// device format to `f32` and calls [`CaptureProducer::push`] (which never
+    /// blocks or allocates).
+    ///
+    /// # Errors
+    /// Returns [`DeviceError`] on any device/stream failure.
+    pub fn start(mut producer: CaptureProducer) -> Result<Self, DeviceError> {
+        let host = cpal::default_host();
+        let device = host
+            .default_input_device()
+            .ok_or(DeviceError::NoInputDevice)?;
+        let supported = device
+            .default_input_config()
+            .map_err(|e| DeviceError::NoConfig(e.to_string()))?;
+        let sample_format = supported.sample_format();
+        let sample_rate = supported.sample_rate();
+        let channels = supported.channels();
+        let config: StreamConfig = supported.into();
+
+        let err_fn = |e| eprintln!("audio input stream error: {e}");
+
+        let stream = match sample_format {
+            SampleFormat::F32 => device
+                .build_input_stream(
+                    config,
+                    move |data: &[f32], _| producer.push(data),
+                    err_fn,
+                    None,
+                )
+                .map_err(|e| DeviceError::Build(e.to_string()))?,
+            SampleFormat::I16 => device
+                .build_input_stream(
+                    config,
+                    move |data: &[i16], _| {
+                        const CHUNK: usize = 1024;
+                        let mut tmp = [0.0f32; CHUNK];
+                        let mut i = 0;
+                        while i < data.len() {
+                            let n = (data.len() - i).min(CHUNK);
+                            for k in 0..n {
+                                tmp[k] = f32::from(data[i + k]) / f32::from(i16::MAX);
+                            }
+                            producer.push(&tmp[..n]);
+                            i += n;
+                        }
+                    },
+                    err_fn,
+                    None,
+                )
+                .map_err(|e| DeviceError::Build(e.to_string()))?,
+            SampleFormat::U16 => device
+                .build_input_stream(
+                    config,
+                    move |data: &[u16], _| {
+                        const CHUNK: usize = 1024;
+                        let mut tmp = [0.0f32; CHUNK];
+                        let mut i = 0;
+                        while i < data.len() {
+                            let n = (data.len() - i).min(CHUNK);
+                            for k in 0..n {
+                                tmp[k] = (f32::from(data[i + k]) / f32::from(u16::MAX)) * 2.0 - 1.0;
+                            }
+                            producer.push(&tmp[..n]);
+                            i += n;
+                        }
+                    },
+                    err_fn,
+                    None,
+                )
+                .map_err(|e| DeviceError::Build(e.to_string()))?,
+            other => return Err(DeviceError::UnsupportedFormat(other)),
+        };
+
+        stream
+            .play()
+            .map_err(|e| DeviceError::Play(e.to_string()))?;
+
+        Ok(Self {
+            _stream: stream,
+            sample_rate,
+            channels,
+        })
     }
 }

@@ -32,7 +32,8 @@ A thin presenter over `Project` + `daw-commands` + `daw-audio-io`:
   - **S** splits the selected clip at the playhead (one undo unit)
   - **Delete/Backspace** removes the selected clip (`RemoveClip`)
   - **Cmd/Ctrl+Z** / **Shift+Cmd/Ctrl+Z** undo/redo, also in the Edit menu
-- **Transport bar** — Play/Pause (Space), Return-to-start, position readout
+- **Transport bar** — Play/Pause (Space), **● Record** (captures the input onto
+  the selected track at the playhead), Return-to-start, position readout
   (seconds + bars:beats), an editable **BPM** field, and L/R peak meters.
   Pause/resume retains position.
 - **Detail panel (bottom)** — for the selected track: a **volume** slider

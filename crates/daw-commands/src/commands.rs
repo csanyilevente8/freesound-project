@@ -12,7 +12,8 @@ use daw_core::audio::Gain;
 use daw_core::automation::{AutomationLane, AutomationPoint, AutomationTarget};
 use daw_core::clip::AudioClip;
 use daw_core::effect::{EffectInstance, ParamValue};
-use daw_core::id::{ClipId, EffectId, TrackId};
+use daw_core::id::{AssetId, ClipId, EffectId, TrackId};
+use daw_core::media::MediaAssetRef;
 use daw_core::project::Project;
 use daw_core::time::SampleTime;
 use daw_core::track::Track;
@@ -218,6 +219,68 @@ impl Command for SetTimeSignature {
         Ok(Box::new(SetTimeSignature {
             time_signature: previous,
         }))
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Asset commands
+// ---------------------------------------------------------------------------
+
+/// Adds a media-asset reference to the project (e.g. after recording/import).
+pub struct AddAsset {
+    /// The asset reference to add.
+    pub asset: MediaAssetRef,
+}
+
+impl Command for AddAsset {
+    fn label(&self) -> String {
+        "Add Asset".to_string()
+    }
+
+    fn apply(&self, project: &mut Project) -> Result<Box<dyn Command>, CommandError> {
+        let id = self.asset.id;
+        project.add_asset(self.asset.clone());
+        Ok(Box::new(RemoveAsset { id }))
+    }
+}
+
+/// Removes a media-asset reference by id. Note: this removes the *reference*,
+/// never the underlying media file (recording-safe undo, spec §13).
+pub struct RemoveAsset {
+    /// Asset id to remove.
+    pub id: AssetId,
+}
+
+impl Command for RemoveAsset {
+    fn label(&self) -> String {
+        "Remove Asset".to_string()
+    }
+
+    fn apply(&self, project: &mut Project) -> Result<Box<dyn Command>, CommandError> {
+        let (index, asset) = project
+            .remove_asset(self.id)
+            .ok_or_else(|| not_found("asset", self.id))?;
+        Ok(Box::new(InsertAssetAt { index, asset }))
+    }
+}
+
+/// Re-inserts a removed asset at its original index (inverse of remove).
+pub struct InsertAssetAt {
+    /// Index to insert at.
+    pub index: usize,
+    /// The asset reference.
+    pub asset: MediaAssetRef,
+}
+
+impl Command for InsertAssetAt {
+    fn label(&self) -> String {
+        "Insert Asset".to_string()
+    }
+
+    fn apply(&self, project: &mut Project) -> Result<Box<dyn Command>, CommandError> {
+        let id = self.asset.id;
+        project.insert_asset(self.index, self.asset.clone());
+        Ok(Box::new(RemoveAsset { id }))
     }
 }
 

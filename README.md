@@ -4,14 +4,13 @@ A free and open-source, cross-platform desktop digital audio workstation (DAW)
 written in Rust. The name is a placeholder and is not hard-coded into the
 architecture.
 
-> **Status: Milestone 1 (in progress) — offline core complete; live playback
-> and a GUI prototype working.** Milestone 0 and the offline portion of
-> Milestone 1 are done (clip/media model, effects, automation, WAV
-> import/export, undo/redo, CLI). Live audio **output** works via CPAL
-> (`daw play`), and an **egui GUI prototype** (`daw-gui`, behind the `gui`
-> feature) shows the timeline/transport and drives live playback. Still missing:
-> in-GUI editing, recording, and MIDI. See `docs/MILESTONE-1.md` and
-> `docs/MILESTONE-0.md` for status reports and
+> **Status: Milestone 1 (in progress) — offline core complete; live playback,
+> recording, and an editable GUI working.** Milestone 0 and most of Milestone 1
+> are done. The **egui GUI** (`daw-gui`, `gui` feature) shows the timeline,
+> edits clips (move/trim/split/delete), mixes tracks (volume/mute/solo/effects),
+> plays live (CPAL), and **records from the microphone** into new clips. Still
+> missing: MIDI + a software instrument, and simultaneous play+record. See
+> `docs/MILESTONE-1.md` and `docs/MILESTONE-0.md` for status reports and
 > `docs/architecture/architecture.md` for the design + diagrams.
 
 ## Clone

@@ -111,6 +111,18 @@ impl Project {
         id
     }
 
+    /// Removes a media asset by id, returning `(index, asset)` if present.
+    pub fn remove_asset(&mut self, id: AssetId) -> Option<(usize, MediaAssetRef)> {
+        let idx = self.assets.iter().position(|a| a.id == id)?;
+        Some((idx, self.assets.remove(idx)))
+    }
+
+    /// Inserts a media asset at `index` (clamped to the current length).
+    pub fn insert_asset(&mut self, index: usize, asset: MediaAssetRef) {
+        let index = index.min(self.assets.len());
+        self.assets.insert(index, asset);
+    }
+
     /// Returns the index of the automation lane targeting `target`, if any.
     #[must_use]
     pub fn automation_index(&self, target: &crate::automation::AutomationTarget) -> Option<usize> {

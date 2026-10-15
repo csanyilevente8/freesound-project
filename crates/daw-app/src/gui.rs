@@ -62,6 +62,8 @@ pub struct DawGui {
     /// Live master output gain (linear). Applied in the player in real time via
     /// `SetMasterGain` — changes are heard immediately without re-rendering.
     master_gain: f32,
+    /// Active recording session, if currently recording.
+    recording: Option<crate::record::RecordingSession>,
 }
 
 /// What a clip drag is doing.
@@ -116,6 +118,7 @@ impl DawGui {
             drag: None,
             selected: None,
             master_gain: 1.0,
+            recording: None,
         }
     }
 
@@ -344,6 +347,43 @@ impl DawGui {
         );
     }
 
+    /// Starts or stops recording. Records the default input device onto the
+    /// detail track at the current playhead; on stop, imports the take and adds
+    /// a clip (undoable). Recording stops live playback first.
+    fn toggle_recording(&mut self) {
+        if let Some(session) = self.recording.take() {
+            let result = session.finish(&mut self.project, &mut self.history);
+            self.status = result.message;
+            if result.created_clip {
+                self.invalidate_playback();
+            }
+            return;
+        }
+
+        let Some(track) = self.detail_track_id() else {
+            self.status = "no audio track to record onto".into();
+            return;
+        };
+        self.pause(); // free the device / clean take
+        let start = daw_core::time::SampleTime::new(self.playhead);
+        let dir = self
+            .project_path
+            .as_deref()
+            .and_then(|p| std::path::Path::new(p).parent())
+            .map(std::path::Path::to_path_buf);
+        match crate::record::RecordingSession::start(dir.as_deref(), track, start) {
+            Ok(session) => {
+                self.recording = Some(session);
+                self.status = "recording…".into();
+            }
+            Err(e) => self.status = format!("record failed: {e}"),
+        }
+    }
+
+    fn is_recording(&self) -> bool {
+        self.recording.is_some()
+    }
+
     /// The track whose controls the detail panel shows: the selected clip's
     /// track, or the first non-master track if nothing is selected.
     fn detail_track_id(&self) -> Option<TrackId> {
@@ -468,7 +508,7 @@ impl eframe::App for DawGui {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll_playback();
         // Keep repainting while playing so the playhead animates.
-        if self.is_playing() || self.drag.is_some() {
+        if self.is_playing() || self.drag.is_some() || self.is_recording() {
             ctx.request_repaint();
         }
         // Keyboard: Space toggles play/stop (a core accessibility path).
@@ -579,6 +619,35 @@ impl DawGui {
                 });
                 if resp.clicked() {
                     self.toggle_playback();
+                }
+
+                // Record button: red ● when idle, "⏹ Rec 1.2s" while recording.
+                let recording = self.is_recording();
+                let rec_label = if recording {
+                    format!(
+                        "⏹ Rec {:.1}s",
+                        self.recording.as_ref().map_or(0.0, |r| r.elapsed_secs())
+                    )
+                } else {
+                    "● Record".to_string()
+                };
+                let rec_btn =
+                    egui::Button::new(egui::RichText::new(rec_label).color(if recording {
+                        egui::Color32::WHITE
+                    } else {
+                        theme::DANGER
+                    }));
+                let rec_btn = if recording {
+                    rec_btn.fill(theme::DANGER)
+                } else {
+                    rec_btn
+                };
+                if ui
+                    .add(rec_btn)
+                    .on_hover_text("Record the input onto the selected track at the playhead")
+                    .clicked()
+                {
+                    self.toggle_recording();
                 }
 
                 if ui

@@ -107,7 +107,26 @@ New `daw-audio-io` crate (first audio runtime deps: `cpal` 0.18, `rtrb` 0.4):
 
 ---
 
-## Slice 15 — GUI Phase A (real track/mix controls)
+## Slice 16 — Recording (P2)
+
+Live input capture → file → clip, end to end (verified on macOS with a mic):
+- `daw-audio-io`: a `CpalInput` capture backend (confined to `cpal_backend`),
+  a real-time `CaptureProducer` → bounded `rtrb` ring → writer thread → streaming
+  float32 WAV (`WavStreamWriter`), with overrun counting, disk-error reporting,
+  and safe finalize (Slice 2a, already shipped) + the CPAL input stream (2b).
+- `daw-commands`: `AddAsset` / `RemoveAsset` / `InsertAssetAt` (undoable asset
+  references).
+- `daw-app::record`: a `RecordingSession` that, on stop, finalizes the WAV,
+  imports it, and adds the asset + a clip in one undoable transaction —
+  **recording-safe undo** (removes references, never the media file).
+- GUI: a **● Record** button (red; shows elapsed time while recording). Records
+  onto the selected track at the playhead; stops playback first.
+
+Known gaps (follow-ups): no simultaneous play+record (duplex), no input
+monitoring, no record-time level meter. 230 tests; clippy clean; GUI
+feature-gated.
+
+---
 
 Wired the mockup's detail panel + transport to the backend (plan Phase A):
 - **Detail panel**: selected-track **volume** (dB), **mute/solo**, **effect

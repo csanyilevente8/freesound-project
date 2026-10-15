@@ -79,18 +79,32 @@ soloed tracks.
 Summing does not clamp (ADR-0004). Intermediate and summed signals may exceed
 [-1.0, 1.0]. A limiter/clamp belongs at the master stage and will be explicit.
 
+## Live audio I/O (`daw-audio-io`)
+
+Output (playback) and input (recording) both go through CPAL, confined to
+`cpal_backend`:
+
+- **Playback** — `CpalOutput` drives a real-time-safe `Player` from the output
+  callback (ADR-0003/0007). Transport/gain commands and meter/position events
+  cross via bounded `rtrb` rings.
+- **Recording** (spec §9.7) — `CpalInput` pushes captured samples into a
+  real-time `CaptureProducer` (bounded ring, never blocks/allocates); a writer
+  thread drains the ring to a streaming float32 WAV (`WavStreamWriter`), with
+  overrun counting, disk-error reporting, and safe finalize. On stop, the app
+  layer imports the take and adds an asset + clip as one undoable transaction
+  (undo removes references, never the media file).
+
 ## Deferred to later milestones
 
-- Real-time transport (play/stop/record), sample-position clock (spec §9.5).
-- Device adapter and callback (ADR-0003, next in Milestone 1).
 - A runtime audio graph with node/connection identities and cycle rejection
   (spec §9.3); the renderer composes processors directly with no persistent
-  graph.
-- Audio **import/decoding** and resampling (spec §12) — asset references and
-  scheduling exist; the decoder behind `AssetSource` does not.
-- Metering snapshots to the UI, xrun/dropout reporting (spec §9.8).
-- Latency concepts and compensation (spec §9.6).
-- Recording pipeline with a writer thread and bounded ring buffer (spec §9.7).
+  graph. (This is what would make per-track edits audible *during* playback —
+  the "prepared-graph swap" of ADR-0007.)
+- Simultaneous play **and** record (duplex); input monitoring; a record-time
+  input level meter.
+- Latency compensation (spec §9.6).
+- Tempo-relative scheduling (clips are frame-positioned; tempo is not yet
+  applied to playback).
 
 ## Real-time safety (planned)
 
