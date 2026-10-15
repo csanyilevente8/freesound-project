@@ -1,0 +1,16 @@
+[package]
+name = "daw-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Offline rendering and export (WAV). Reuses the hardware-independent engine render path; no audio device required."
+
+[dependencies]
+daw-core.workspace = true
+daw-dsp.workspace = true
+daw-engine.workspace = true
+
+[dev-dependencies]
+daw-project.workspace = true
+tempfile = "3.13.0"

@@ -1,0 +1,11 @@
+[package]
+name = "daw-commands"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Editing commands and undo/redo history over the core project model. UI-independent; every user-visible edit routes through a command that can validate, apply, and invert itself."
+
+[dependencies]
+daw-core.workspace = true
+thiserror.workspace = true

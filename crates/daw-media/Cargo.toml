@@ -1,0 +1,17 @@
+[package]
+name = "daw-media"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Audio import/decoding behind a replaceable boundary. Milestone 1 decodes canonical PCM16/float32 WAV with a hand-written reader; compressed formats (symphonia) are deferred. Imported media is immutable source."
+
+[dependencies]
+daw-core.workspace = true
+daw-dsp.workspace = true
+daw-engine.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+daw-render.workspace = true
+tempfile = "3.13.0"

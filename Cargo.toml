@@ -1,0 +1,44 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/daw-core",
+    "crates/daw-project",
+    "crates/daw-dsp",
+    "crates/daw-engine",
+    "crates/daw-render",
+    "crates/daw-media",
+    "crates/daw-commands",
+    "crates/daw-app",
+]
+
+# Shared metadata and dependency versions for all workspace crates.
+# Internal crate names use a neutral `daw-*` prefix so the working product
+# name ("Free Sound") is never hard-coded into core architecture.
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.80"
+license = "GPL-3.0-or-later"
+repository = ""
+authors = []
+
+[workspace.dependencies]
+# Pinned, well-known, actively-maintained dependencies. See the dependency
+# inventory in docs/architecture/overview.md for rationale and licensing.
+serde = { version = "1.0.210", features = ["derive"] }
+serde_json = "1.0.128"
+uuid = { version = "1.10.0", features = ["v4", "serde"] }
+thiserror = "1.0.64"
+
+# Internal crates
+daw-core = { path = "crates/daw-core" }
+daw-project = { path = "crates/daw-project" }
+daw-dsp = { path = "crates/daw-dsp" }
+daw-engine = { path = "crates/daw-engine" }
+daw-render = { path = "crates/daw-render" }
+daw-media = { path = "crates/daw-media" }
+daw-commands = { path = "crates/daw-commands" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"

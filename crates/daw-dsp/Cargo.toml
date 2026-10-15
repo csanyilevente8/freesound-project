@@ -1,0 +1,10 @@
+[package]
+name = "daw-dsp"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Built-in DSP processors and a buffer/mixing abstraction. Processors know nothing about tracks, projects, files, or UI."
+
+[dependencies]
+daw-core.workspace = true

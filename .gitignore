@@ -1,0 +1,33 @@
+# ---- Rust / Cargo ----
+/target
+**/*.rs.bk
+*.pdb
+# Cargo.lock IS committed (this is an application/binary workspace).
+
+# ---- OS / editor ----
+.DS_Store
+*~
+*.swp
+.idea/
+.vscode/
+
+# ---- Generated audio & scratch session files ----
+# Rendered/exported audio and ad-hoc project files created while testing are
+# artifacts, not source. Keep them out of the repo...
+*.wav
+/*.json
+/*.dawproj
+/*.dawproject/
+# ...but keep curated demo material under samples/.
+!samples/
+!samples/**
+
+# ---- Future UI (egui/eframe, ADR-0002) ----
+# When the desktop UI lands, these are build/runtime caches and local artifacts
+# that should not be tracked:
+/ui-cache/
+*.egui_cache
+# Local, machine-specific UI layout/preferences persisted at runtime
+# (panel sizes, last window geometry) must not be committed.
+/layout.local.json
+screenshots/

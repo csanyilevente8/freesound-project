@@ -1,0 +1,21 @@
+[package]
+name = "daw-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Application composition and the minimal UI shell entry point. The GUI framework is intentionally not yet selected (ADR-0002 open); this shell renders project state to stdout behind an app-facing boundary so a graphical frontend can replace it without touching core crates."
+
+[[bin]]
+name = "daw"
+path = "src/main.rs"
+
+[dependencies]
+daw-core.workspace = true
+daw-project.workspace = true
+daw-engine.workspace = true
+daw-render.workspace = true
+daw-media.workspace = true
+
+[dev-dependencies]
+tempfile = "3.13.0"

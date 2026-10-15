@@ -1,0 +1,15 @@
+[package]
+name = "daw-engine"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Offline audio processing path: renders a project's tracks through gain and a summing mixer. Hardware-independent; the real-time device path is a later milestone."
+
+[dependencies]
+daw-core.workspace = true
+daw-dsp.workspace = true
+
+[dev-dependencies]
+daw-project.workspace = true
+tempfile = "3.13.0"
